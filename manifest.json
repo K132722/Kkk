@@ -1,0 +1,44 @@
+
+{
+    "name": "جدول المحاضرات الجامعية",
+    "short_name": "جدول المحاضرات",
+    "description": "تطبيق لإدارة جدول المحاضرات الجامعية مع إشعارات تلقائية",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#667eea",
+    "theme_color": "#2196F3",
+    "orientation": "portrait",
+    "scope": "/",
+    "lang": "ar",
+    "dir": "rtl",
+    "icons": [
+        {
+            "src": "icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "إضافة محاضرة",
+            "short_name": "إضافة",
+            "description": "إضافة محاضرة جديدة للجدول",
+            "url": "/#add-lecture",
+            "icons": [
+                {
+                    "src": "icon-192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        }
+    ],
+    "categories": ["education", "productivity", "utilities"],
+    "prefer_related_applications": false
+}

@@ -1,16 +1,88 @@
+
 <!DOCTYPE html>
-<html>
-
+<html lang="ar" dir="rtl">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width">
-  <title>replit</title>
-  <link href="style.css" rel="stylesheet" type="text/css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>جدول المحاضرات الجامعية</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="جدول المحاضرات">
+    <meta name="theme-color" content="#2196F3">
+    <link href="style.css" rel="stylesheet">
 </head>
-
 <body>
-  Hello world
-  <script src="script.js"></script>
-</body>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>جدول المحاضرات الجامعية</h1>
+            <div class="header-buttons">
+                <button id="notificationBtn" class="btn btn-primary">تفعيل الإشعارات</button>
+                <button id="addLectureBtn" class="btn btn-success">إضافة محاضرة</button>
+            </div>
+        </header>
 
+        <div class="notification-status" id="notificationStatus"></div>
+
+        <div class="schedule-container">
+            <div class="days-grid" id="scheduleGrid">
+                <!-- سيتم ملء الجدول من خلال JavaScript -->
+            </div>
+        </div>
+
+        <!-- Modal لإضافة/تعديل المحاضرات -->
+        <div id="lectureModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="modalTitle">إضافة محاضرة جديدة</h2>
+                    <span class="close">&times;</span>
+                </div>
+                <form id="lectureForm">
+                    <div class="form-group">
+                        <label for="day">اليوم:</label>
+                        <select id="day" required>
+                            <option value="saturday">السبت</option>
+                            <option value="sunday">الأحد</option>
+                            <option value="monday">الاثنين</option>
+                            <option value="tuesday">الثلاثاء</option>
+                            <option value="wednesday">الأربعاء</option>
+                            <option value="thursday">الخميس</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="startTime">وقت البداية:</label>
+                        <input type="time" id="startTime" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="duration">المدة (بالدقائق):</label>
+                        <input type="number" id="duration" min="30" max="240" value="120" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="subject">اسم المادة:</label>
+                        <input type="text" id="subject" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="professor">اسم الدكتور:</label>
+                        <input type="text" id="professor" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="room">رقم القاعة:</label>
+                        <input type="text" id="room" required>
+                    </div>
+                    <div class="form-buttons">
+                        <button type="submit" class="btn btn-primary">حفظ</button>
+                        <button type="button" id="cancelBtn" class="btn btn-secondary">إلغاء</button>
+                        <button type="button" id="deleteBtn" class="btn btn-danger" style="display: none;">حذف</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- إشعارات التطبيق -->
+        <div id="appNotifications" class="app-notifications"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
 </html>
