@@ -44,6 +44,10 @@ class LectureScheduleApp {
             this.openLectureModal();
         });
 
+        document.getElementById('testNotificationBtn').addEventListener('click', () => {
+            this.testNotification();
+        });
+
         // Modal
         document.querySelector('.close').addEventListener('click', () => {
             this.closeLectureModal();
@@ -99,17 +103,20 @@ class LectureScheduleApp {
     updateNotificationStatus() {
         const statusEl = document.getElementById('notificationStatus');
         const btnEl = document.getElementById('notificationBtn');
+        const testBtnEl = document.getElementById('testNotificationBtn');
         
         if (this.notificationPermission === 'granted') {
             statusEl.textContent = 'الإشعارات مفعلة ✅';
             statusEl.className = 'notification-status enabled';
             btnEl.textContent = 'الإشعارات مفعلة';
             btnEl.disabled = true;
+            testBtnEl.style.display = 'inline-block';
         } else {
             statusEl.textContent = 'الإشعارات غير مفعلة - انقر لتفعيلها';
             statusEl.className = 'notification-status disabled';
             btnEl.textContent = 'تفعيل الإشعارات';
             btnEl.disabled = false;
+            testBtnEl.style.display = 'none';
         }
     }
 
@@ -434,6 +441,24 @@ class LectureScheduleApp {
             // إظهار إشعار داخل التطبيق كبديل
             this.showAppNotification(`${title}: ${body}`, 'success');
         }
+    }
+
+    testNotification() {
+        if (this.notificationPermission !== 'granted') {
+            this.showAppNotification('يجب تفعيل الإشعارات أولاً', 'warning');
+            return;
+        }
+
+        this.showAppNotification('سيتم إرسال إشعار تجريبي خلال 5 ثوانٍ...', 'info');
+
+        setTimeout(() => {
+            this.sendNotification(
+                'مرحباً بك في برنامج جدول محاضراتي! 📚',
+                'هذا إشعار تجريبي للتأكد من أن الإشعارات تعمل بشكل صحيح. الآن يمكنك استقبال تذكيرات المحاضرات!',
+                '✅'
+            );
+            this.showAppNotification('تم إرسال الإشعار التجريبي بنجاح!', 'success');
+        }, 5000);
     }
 
     showAppNotification(message, type = 'info') {
