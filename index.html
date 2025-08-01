@@ -30,7 +30,25 @@
 
         <div class="notification-status" id="notificationStatus"></div>
 
-        <div class="schedule-container">
+        <!-- حاوية الوقت والمحاضرة القادمة -->
+        <div class="current-info-container">
+            <div class="current-info-grid">
+                <div class="info-card">
+                    <h3>الوقت الحالي</h3>
+                    <div class="current-time" id="currentTime">00:00:00</div>
+                    <div class="current-date" id="currentDateHijri">--</div>
+                    <div class="current-date" id="currentDateGregorian">--</div>
+                </div>
+                <div class="info-card">
+                    <h3>المحاضرة القادمة</h3>
+                    <div class="next-lecture-name" id="nextLectureName">لا توجد محاضرات اليوم</div>
+                    <div class="next-lecture-info" id="nextLectureInfo">--</div>
+                    <div class="time-remaining" id="timeRemaining">--</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="schedule-container"></div>
             <div class="days-grid" id="scheduleGrid">
                 <!-- سيتم ملء الجدول من خلال JavaScript -->
             </div>
@@ -61,7 +79,8 @@
                     </div>
                     <div class="form-group">
                         <label for="duration">المدة (بالدقائق):</label>
-                        <input type="number" id="duration" min="30" max="240" value="120" required>
+                        <input type="number" id="duration" min="30" max="300" value="120" required>
+                        <small style="color: #666; font-size: 0.9rem;">30 دقيقة = نصف ساعة، 60 دقيقة = ساعة واحدة، 120 دقيقة = ساعتان</small>
                     </div>
                     <div class="form-group">
                         <label for="subject">اسم المادة:</label>

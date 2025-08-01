@@ -16,6 +16,12 @@ class LectureScheduleApp {
         await this.registerServiceWorker();
         this.checkNotificationPermission();
         this.scheduleAllNotifications();
+        this.updateCurrentInfo();
+        
+        // تحديث الوقت كل ثانية
+        setInterval(() => {
+            this.updateCurrentInfo();
+        }, 1000);
         
         // تحديث الجدول كل دقيقة للتحقق من المحاضرات
         setInterval(() => {
@@ -219,7 +225,7 @@ class LectureScheduleApp {
             <div class="lecture-subject">${lecture.subject}</div>
             <div class="lecture-professor">${lecture.professor}</div>
             <div class="lecture-room">القاعة: ${lecture.room}</div>
-            <div class="lecture-duration">المدة: ${lecture.duration} دقيقة</div>
+            <div class="lecture-duration">المدة: ${this.formatDuration(lecture.duration)}</div>
         `;
 
         return lectureEl;
@@ -571,6 +577,157 @@ class LectureScheduleApp {
         setTimeout(() => {
             this.showAppNotification('تم إرسال الإشعار التجريبي!', 'success');
         }, 5500);
+    }
+
+    updateCurrentInfo() {
+        const now = new Date();
+        
+        // تحديث الوقت الحالي
+        const timeString = now.toLocaleTimeString('ar-SA', {
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+        document.getElementById('currentTime').textContent = timeString;
+        
+        // تحديث التاريخ الهجري
+        const hijriDate = this.getHijriDate(now);
+        document.getElementById('currentDateHijri').textContent = hijriDate;
+        
+        // تحديث التاريخ الميلادي
+        const gregorianDate = now.toLocaleDateString('ar-SA', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+        document.getElementById('currentDateGregorian').textContent = gregorianDate;
+        
+        // تحديث المحاضرة القادمة
+        this.updateNextLectureInfo(now);
+    }
+
+    getHijriDate(date) {
+        try {
+            return date.toLocaleDateString('ar-SA-u-ca-islamic', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        } catch (error) {
+            // في حالة عدم دعم التقويم الهجري
+            return 'التاريخ الهجري غير متاح';
+        }
+    }
+
+    updateNextLectureInfo(now) {
+        const currentDay = this.getCurrentDayKey();
+        const todayLectures = this.lectures
+            .filter(lecture => lecture.day === currentDay)
+            .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+        let nextLecture = null;
+        const currentTime = now.getHours() * 60 + now.getMinutes();
+
+        // البحث عن المحاضرة القادمة اليوم
+        for (const lecture of todayLectures) {
+            const [hours, minutes] = lecture.startTime.split(':').map(Number);
+            const lectureTime = hours * 60 + minutes;
+            
+            if (lectureTime > currentTime) {
+                nextLecture = lecture;
+                break;
+            }
+        }
+
+        // إذا لم توجد محاضرة اليوم، ابحث في الأيام القادمة
+        if (!nextLecture) {
+            const daysOrder = ['saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday'];
+            const currentDayIndex = daysOrder.indexOf(currentDay);
+            
+            for (let i = 1; i <= 6; i++) {
+                const nextDayIndex = (currentDayIndex + i) % 6;
+                const nextDayKey = daysOrder[nextDayIndex];
+                const nextDayLectures = this.lectures
+                    .filter(lecture => lecture.day === nextDayKey)
+                    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+                
+                if (nextDayLectures.length > 0) {
+                    nextLecture = nextDayLectures[0];
+                    nextLecture.isNextDay = true;
+                    nextLecture.dayName = this.getDayName(nextDayKey);
+                    break;
+                }
+            }
+        }
+
+        if (nextLecture) {
+            document.getElementById('nextLectureName').textContent = nextLecture.subject;
+            document.getElementById('nextLectureInfo').innerHTML = `
+                <div>${nextLecture.professor}</div>
+                <div>القاعة: ${nextLecture.room}</div>
+                <div>المدة: ${this.formatDuration(nextLecture.duration)}</div>
+                ${nextLecture.isNextDay ? `<div>يوم ${nextLecture.dayName}</div>` : ''}
+            `;
+            
+            if (!nextLecture.isNextDay) {
+                const timeRemaining = this.calculateTimeRemaining(now, nextLecture.startTime);
+                document.getElementById('timeRemaining').textContent = timeRemaining;
+            } else {
+                document.getElementById('timeRemaining').textContent = `في ${nextLecture.startTime}`;
+            }
+        } else {
+            document.getElementById('nextLectureName').textContent = 'لا توجد محاضرات';
+            document.getElementById('nextLectureInfo').textContent = 'لا توجد محاضرات مجدولة';
+            document.getElementById('timeRemaining').textContent = '--';
+        }
+    }
+
+    getDayName(dayKey) {
+        const dayNames = {
+            'saturday': 'السبت',
+            'sunday': 'الأحد',
+            'monday': 'الاثنين',
+            'tuesday': 'الثلاثاء',
+            'wednesday': 'الأربعاء',
+            'thursday': 'الخميس'
+        };
+        return dayNames[dayKey] || dayKey;
+    }
+
+    calculateTimeRemaining(now, startTime) {
+        const [hours, minutes] = startTime.split(':').map(Number);
+        const lectureTime = new Date(now);
+        lectureTime.setHours(hours, minutes, 0, 0);
+        
+        if (lectureTime <= now) {
+            return 'المحاضرة بدأت';
+        }
+        
+        const diff = lectureTime.getTime() - now.getTime();
+        const hoursRemaining = Math.floor(diff / (1000 * 60 * 60));
+        const minutesRemaining = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        
+        if (hoursRemaining > 0) {
+            return `${hoursRemaining} ساعة و ${minutesRemaining} دقيقة`;
+        } else {
+            return `${minutesRemaining} دقيقة`;
+        }
+    }
+
+    formatDuration(minutes) {
+        const hours = Math.floor(minutes / 60);
+        const remainingMinutes = minutes % 60;
+        
+        if (hours > 0 && remainingMinutes > 0) {
+            return `${hours} ساعة و ${remainingMinutes} دقيقة`;
+        } else if (hours > 0) {
+            return `${hours} ساعة`;
+        } else {
+            return `${remainingMinutes} دقيقة`;
+        }
     }
 
     showAppNotification(message, type = 'info') {
