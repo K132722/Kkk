@@ -40,5 +40,11 @@
         }
     ],
     "categories": ["education", "productivity", "utilities"],
-    "prefer_related_applications": false
+    "prefer_related_applications": false,
+    "permissions": [
+        "notifications"
+    ],
+    "notification_types": [
+        "persistent"
+    ]
 }

@@ -325,6 +325,14 @@ class LectureScheduleApp {
         this.lectures.forEach(lecture => {
             this.scheduleLectureNotifications(lecture, now, currentDay);
         });
+
+        // إرسال المحاضرات إلى Service Worker للجدولة في الخلفية
+        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
+            this.serviceWorkerRegistration.active.postMessage({
+                type: 'SCHEDULE_LECTURE_NOTIFICATIONS',
+                lectures: this.lectures
+            });
+        }
     }
 
     getCurrentDayKey() {
@@ -420,21 +428,43 @@ class LectureScheduleApp {
                 // استخدام Service Worker للإشعارات
                 await this.serviceWorkerRegistration.showNotification(title, {
                     body: body,
-                    icon: 'icon-192.png',
-                    badge: 'icon-192.png',
+                    icon: '/icon-192.png',
+                    badge: '/icon-192.png',
                     tag: 'lecture-notification',
                     requireInteraction: true,
                     vibrate: [200, 100, 200],
-                    data: { type: 'lecture' }
+                    silent: false,
+                    timestamp: Date.now(),
+                    actions: [
+                        {
+                            action: 'view',
+                            title: 'عرض'
+                        },
+                        {
+                            action: 'dismiss',
+                            title: 'حسناً'
+                        }
+                    ],
+                    data: { 
+                        type: 'lecture',
+                        timestamp: Date.now()
+                    }
                 });
             } else {
-                // إشعار عادي
-                new Notification(title, {
+                // إشعار عادي للمتصفحات التي لا تدعم Service Worker
+                const notification = new Notification(title, {
                     body: body,
-                    icon: 'icon-192.png',
+                    icon: '/icon-192.png',
                     tag: 'lecture-notification',
-                    requireInteraction: true
+                    requireInteraction: true,
+                    silent: false,
+                    vibrate: [200, 100, 200]
                 });
+                
+                // إغلاق الإشعار بعد 10 ثوان
+                setTimeout(() => {
+                    notification.close();
+                }, 10000);
             }
         } catch (error) {
             console.error('خطأ في إرسال الإشعار:', error);
