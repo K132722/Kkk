@@ -47,6 +47,19 @@ class LectureScheduleApp {
                     });
                 }
 
+                // انتظار Service Worker النشط
+                if (!this.serviceWorkerRegistration.active) {
+                    await new Promise((resolve) => {
+                        if (this.serviceWorkerRegistration.waiting) {
+                            this.serviceWorkerRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                        }
+                        this.serviceWorkerRegistration.addEventListener('controllerchange', resolve);
+                    });
+                }
+
+                // حفظ البيانات في IndexedDB
+                await this.saveToIndexedDB();
+
                 // طلب إذن المزامنة في الخلفية
                 if ('periodicSync' in window && this.serviceWorkerRegistration.sync) {
                     try {
@@ -57,16 +70,30 @@ class LectureScheduleApp {
                     }
                 }
 
+                // تسجيل المزامنة الدورية إذا كانت مدعومة
+                if ('periodicSync' in window && this.serviceWorkerRegistration.periodicSync) {
+                    try {
+                        await this.serviceWorkerRegistration.periodicSync.register('lecture-check', {
+                            minInterval: 5 * 60 * 1000 // كل 5 دقائق
+                        });
+                        console.log('Periodic sync registered');
+                    } catch (error) {
+                        console.log('Periodic sync not supported:', error);
+                    }
+                }
+
                 // إضافة مستمع لتحديثات Service Worker
                 this.serviceWorkerRegistration.addEventListener('updatefound', () => {
                     const newWorker = this.serviceWorkerRegistration.installing;
                     newWorker.addEventListener('statechange', () => {
                         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            // إظهار إشعار بوجود تحديث
                             this.showAppNotification('يتوفر تحديث جديد. سيتم التحديث عند إعادة تحميل الصفحة.', 'info');
                         }
                     });
                 });
+
+                // إرسال البيانات إلى Service Worker فوراً
+                this.sendLectureDataToServiceWorker();
 
             } catch (error) {
                 console.error('Service Worker registration failed:', error);
@@ -191,11 +218,14 @@ class LectureScheduleApp {
                     }
                 }
 
+                // إرسال البيانات إلى Service Worker
+                this.sendLectureDataToServiceWorker();
+
                 // إرسال إشعار تأكيد يوضح للمستخدم أن النظام يعمل
                 setTimeout(() => {
                     this.sendNotification(
                         'نظام التذكير جاهز! 🎓',
-                        'سيتم إرسال التذكيرات تلقائياً:\n• قبل 5 دقائق من بداية المحاضرة\n• عند بداية المحاضرة\n\nالنظام يعمل حتى عند إغلاق التطبيق أو الجهاز.',
+                        'سيتم إرسال التذكيرات تلقائياً:\n• قبل 5 دقائق من بداية المحاضرة\n• عند بداية المحاضرة\n\nالنظام يعمل بشكل مستمر حتى عند إغلاق التطبيق أو الجهاز تماماً!',
                         {
                             type: 'setup',
                             tag: 'setup-confirmation',
@@ -293,6 +323,59 @@ class LectureScheduleApp {
 
     saveLectures() {
         localStorage.setItem('lectures', JSON.stringify(this.lectures));
+        this.saveToIndexedDB();
+        this.sendLectureDataToServiceWorker();
+    }
+
+    // حفظ البيانات في IndexedDB للوصول من Service Worker
+    async saveToIndexedDB() {
+        try {
+            const request = indexedDB.open('LectureScheduleDB', 1);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('lectures')) {
+                    const store = db.createObjectStore('lectures', { keyPath: 'id' });
+                    store.createIndex('day', 'day', { unique: false });
+                    store.createIndex('startTime', 'startTime', { unique: false });
+                }
+            };
+            
+            request.onsuccess = (event) => {
+                const db = event.target.result;
+                const transaction = db.transaction(['lectures'], 'readwrite');
+                const store = transaction.objectStore('lectures');
+                
+                // مسح البيانات القديمة
+                store.clear();
+                
+                // حفظ البيانات الجديدة
+                this.lectures.forEach(lecture => {
+                    store.add(lecture);
+                });
+                
+                console.log('Data saved to IndexedDB');
+            };
+            
+            request.onerror = (event) => {
+                console.error('Failed to save to IndexedDB:', event.target.error);
+            };
+        } catch (error) {
+            console.error('IndexedDB not supported:', error);
+        }
+    }
+
+    // إرسال البيانات إلى Service Worker
+    sendLectureDataToServiceWorker() {
+        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
+            this.serviceWorkerRegistration.active.postMessage({
+                type: 'UPDATE_LECTURE_SCHEDULE',
+                lectures: this.lectures,
+                timestamp: Date.now(),
+                notificationsEnabled: this.notificationPermission === 'granted'
+            });
+            console.log('Lecture data sent to Service Worker');
+        }
     }
 
     renderSchedule() {
@@ -464,15 +547,7 @@ class LectureScheduleApp {
         });
 
         // إرسال جدول كامل إلى Service Worker للعمل في الخلفية
-        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-            this.serviceWorkerRegistration.active.postMessage({
-                type: 'UPDATE_LECTURE_SCHEDULE',
-                lectures: this.lectures,
-                currentDay: currentDay,
-                currentTime: now.getTime(),
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-            });
-        }
+        this.sendLectureDataToServiceWorker();
 
         // حفظ آخر وقت تم فيه جدولة الإشعارات
         localStorage.setItem('lastScheduleUpdate', now.getTime().toString());
