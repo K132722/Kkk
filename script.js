@@ -1,4 +1,3 @@
-
 class LectureScheduleApp {
     constructor() {
         this.lectures = this.loadLectures();
@@ -6,7 +5,7 @@ class LectureScheduleApp {
         this.notificationPermission = 'default';
         this.notificationTimeouts = new Map();
         this.serviceWorkerRegistration = null;
-        
+
         this.init();
     }
 
@@ -17,12 +16,12 @@ class LectureScheduleApp {
         this.checkNotificationPermission();
         this.scheduleAllNotifications();
         this.updateCurrentInfo();
-        
+
         // تحديث الوقت كل ثانية
         setInterval(() => {
             this.updateCurrentInfo();
         }, 1000);
-        
+
         // تحديث الجدول كل دقيقة للتحقق من المحاضرات
         setInterval(() => {
             this.scheduleAllNotifications();
@@ -34,6 +33,20 @@ class LectureScheduleApp {
             try {
                 this.serviceWorkerRegistration = await navigator.serviceWorker.register('sw.js');
                 console.log('Service Worker registered successfully');
+
+                // طلب إذن المزامنة في الخلفية
+                if ('periodicSync' in self.registration) {
+                    const status = await navigator.permissions.query({
+                        name: 'periodic-background-sync'
+                    });
+
+                    if (status.state === 'granted') {
+                        await this.serviceWorkerRegistration.periodicSync.register('lecture-notifications', {
+                            minInterval: 12 * 60 * 60 * 1000 // كل 12 ساعة
+                        });
+                        console.log('Periodic background sync registered');
+                    }
+                }
             } catch (error) {
                 console.error('Service Worker registration failed:', error);
             }
@@ -45,7 +58,7 @@ class LectureScheduleApp {
         document.getElementById('notificationBtn').addEventListener('click', () => {
             this.requestNotificationPermission();
         });
-        
+
         document.getElementById('addLectureBtn').addEventListener('click', () => {
             this.openLectureModal();
         });
@@ -58,11 +71,11 @@ class LectureScheduleApp {
         document.querySelector('.close').addEventListener('click', () => {
             this.closeLectureModal();
         });
-        
+
         document.getElementById('cancelBtn').addEventListener('click', () => {
             this.closeLectureModal();
         });
-        
+
         document.getElementById('deleteBtn').addEventListener('click', () => {
             this.deleteLecture();
         });
@@ -90,10 +103,22 @@ class LectureScheduleApp {
         const permission = await Notification.requestPermission();
         this.notificationPermission = permission;
         this.updateNotificationStatus();
-        
+
         if (permission === 'granted') {
             this.showAppNotification('تم تفعيل الإشعارات بنجاح!', 'success');
             this.scheduleAllNotifications();
+
+            // طلب إذن المزامنة في الخلفية
+            if ('periodicSync' in self.registration) {
+                try {
+                    await this.serviceWorkerRegistration.periodicSync.register('lecture-notifications', {
+                        minInterval: 12 * 60 * 60 * 1000 // كل 12 ساعة
+                    });
+                    console.log('Periodic background sync registered');
+                } catch (error) {
+                    console.error('Failed to register periodic sync:', error);
+                }
+            }
         } else {
             this.showAppNotification('لم يتم منح إذن الإشعارات', 'warning');
         }
@@ -110,7 +135,7 @@ class LectureScheduleApp {
         const statusEl = document.getElementById('notificationStatus');
         const btnEl = document.getElementById('notificationBtn');
         const testBtnEl = document.getElementById('testNotificationBtn');
-        
+
         if (this.notificationPermission === 'granted') {
             statusEl.textContent = 'الإشعارات مفعلة ✅';
             statusEl.className = 'notification-status enabled';
@@ -131,7 +156,7 @@ class LectureScheduleApp {
         if (stored) {
             return JSON.parse(stored);
         }
-        
+
         // بيانات تجريبية
         return [
             {
@@ -219,7 +244,7 @@ class LectureScheduleApp {
         });
 
         const endTime = this.calculateEndTime(lecture.startTime, lecture.duration);
-        
+
         lectureEl.innerHTML = `
             <div class="lecture-time">${lecture.startTime} - ${endTime}</div>
             <div class="lecture-subject">${lecture.subject}</div>
@@ -273,7 +298,7 @@ class LectureScheduleApp {
     saveLecture() {
         const form = document.getElementById('lectureForm');
         const formData = new FormData(form);
-        
+
         const lectureData = {
             day: document.getElementById('day').value,
             startTime: document.getElementById('startTime').value,
@@ -336,7 +361,8 @@ class LectureScheduleApp {
         if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
             this.serviceWorkerRegistration.active.postMessage({
                 type: 'SCHEDULE_LECTURE_NOTIFICATIONS',
-                lectures: this.lectures
+                lectures: this.lectures,
+                currentDay: currentDay
             });
         }
     }
@@ -355,7 +381,7 @@ class LectureScheduleApp {
 
     scheduleLectureNotifications(lecture, now, currentDay) {
         const [hours, minutes] = lecture.startTime.split(':').map(Number);
-        
+
         // حساب وقت المحاضرة لليوم الحالي
         const lectureTime = new Date(now);
         lectureTime.setHours(hours, minutes, 0, 0);
@@ -369,7 +395,7 @@ class LectureScheduleApp {
             if (reminderTime > now) {
                 const delay = reminderTime.getTime() - now.getTime();
                 console.log(`Reminder scheduled in ${delay}ms for lecture ${lecture.id}`);
-                
+
                 // استخدام Service Worker للجدولة
                 if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
                     this.serviceWorkerRegistration.active.postMessage({
@@ -402,7 +428,7 @@ class LectureScheduleApp {
             if (lectureTime > now) {
                 const delay = lectureTime.getTime() - now.getTime();
                 console.log(`Start notification scheduled in ${delay}ms for lecture ${lecture.id}`);
-                
+
                 if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
                     this.serviceWorkerRegistration.active.postMessage({
                         type: 'SCHEDULE_LECTURE_NOTIFICATION',
@@ -438,11 +464,11 @@ class LectureScheduleApp {
             nextLectureDate.setHours(hours, minutes, 0, 0);
 
             const reminderTime = new Date(nextLectureDate.getTime() - 5 * 60 * 1000);
-            
+
             if (reminderTime > now) {
                 const delay = reminderTime.getTime() - now.getTime();
                 console.log(`Future reminder scheduled in ${delay}ms for lecture ${lecture.id}`);
-                
+
                 if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
                     this.serviceWorkerRegistration.active.postMessage({
                         type: 'SCHEDULE_LECTURE_NOTIFICATION',
@@ -461,7 +487,7 @@ class LectureScheduleApp {
         const dayOrder = ['saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday'];
         const currentIndex = dayOrder.indexOf(currentDay);
         const lectureIndex = dayOrder.indexOf(lectureDay);
-        
+
         if (lectureIndex > currentIndex) {
             return lectureIndex - currentIndex;
         } else if (lectureIndex < currentIndex) {
@@ -479,7 +505,7 @@ class LectureScheduleApp {
 
         try {
             console.log('Attempting to send notification:', title, body);
-            
+
             if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
                 // استخدام Service Worker للإشعارات
                 console.log('Using Service Worker for notification');
@@ -522,17 +548,17 @@ class LectureScheduleApp {
                     silent: false,
                     vibrate: options.vibrate || [500, 200, 500]
                 });
-                
+
                 notification.onclick = () => {
                     window.focus();
                     notification.close();
                 };
-                
+
                 // إغلاق الإشعار بعد 15 ثانية
                 setTimeout(() => {
                     notification.close();
                 }, 15000);
-                
+
                 console.log('Regular notification created');
             }
         } catch (error) {
@@ -581,45 +607,31 @@ class LectureScheduleApp {
 
     updateCurrentInfo() {
         const now = new Date();
-        
-        // تحديث الوقت الحالي
-        const timeString = now.toLocaleTimeString('ar-SA', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        });
-        document.getElementById('currentTime').textContent = timeString;
-        
-        // تحديث التاريخ الهجري
-        const hijriDate = this.getHijriDate(now);
-        document.getElementById('currentDateHijri').textContent = hijriDate;
-        
-        // تحديث التاريخ الميلادي
+
+        // تحديث الوقت الحالي (12 ساعة مع تمييز صباح/مساء)
+        const hours = now.getHours();
+        const ampm = hours >= 12 ? 'pm' : 'am';
+        const displayHours = hours % 12 || 12;
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        const seconds = now.getSeconds().toString().padStart(2, '0');
+
+        const timeString = `${displayHours}:${minutes}:${seconds}`;
+        const timeElement = document.getElementById('currentTime');
+        timeElement.textContent = timeString;
+        timeElement.className = `current-time ${ampm}`;
+
+        // تحديث التاريخ الميلادي فقط
         const gregorianDate = now.toLocaleDateString('ar-SA', {
             weekday: 'long',
             year: 'numeric',
             month: 'long',
-            day: 'numeric'
+            day: 'numeric',
+            calendar: 'gregory'
         });
         document.getElementById('currentDateGregorian').textContent = gregorianDate;
-        
+
         // تحديث المحاضرة القادمة
         this.updateNextLectureInfo(now);
-    }
-
-    getHijriDate(date) {
-        try {
-            return date.toLocaleDateString('ar-SA-u-ca-islamic', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-            });
-        } catch (error) {
-            // في حالة عدم دعم التقويم الهجري
-            return 'التاريخ الهجري غير متاح';
-        }
     }
 
     updateNextLectureInfo(now) {
@@ -635,7 +647,7 @@ class LectureScheduleApp {
         for (const lecture of todayLectures) {
             const [hours, minutes] = lecture.startTime.split(':').map(Number);
             const lectureTime = hours * 60 + minutes;
-            
+
             if (lectureTime > currentTime) {
                 nextLecture = lecture;
                 break;
@@ -646,14 +658,14 @@ class LectureScheduleApp {
         if (!nextLecture) {
             const daysOrder = ['saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday'];
             const currentDayIndex = daysOrder.indexOf(currentDay);
-            
+
             for (let i = 1; i <= 6; i++) {
                 const nextDayIndex = (currentDayIndex + i) % 6;
                 const nextDayKey = daysOrder[nextDayIndex];
                 const nextDayLectures = this.lectures
                     .filter(lecture => lecture.day === nextDayKey)
                     .sort((a, b) => a.startTime.localeCompare(b.startTime));
-                
+
                 if (nextDayLectures.length > 0) {
                     nextLecture = nextDayLectures[0];
                     nextLecture.isNextDay = true;
@@ -671,7 +683,7 @@ class LectureScheduleApp {
                 <div>المدة: ${this.formatDuration(nextLecture.duration)}</div>
                 ${nextLecture.isNextDay ? `<div>يوم ${nextLecture.dayName}</div>` : ''}
             `;
-            
+
             if (!nextLecture.isNextDay) {
                 const timeRemaining = this.calculateTimeRemaining(now, nextLecture.startTime);
                 document.getElementById('timeRemaining').textContent = timeRemaining;
@@ -701,15 +713,15 @@ class LectureScheduleApp {
         const [hours, minutes] = startTime.split(':').map(Number);
         const lectureTime = new Date(now);
         lectureTime.setHours(hours, minutes, 0, 0);
-        
+
         if (lectureTime <= now) {
             return 'المحاضرة بدأت';
         }
-        
+
         const diff = lectureTime.getTime() - now.getTime();
         const hoursRemaining = Math.floor(diff / (1000 * 60 * 60));
         const minutesRemaining = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        
+
         if (hoursRemaining > 0) {
             return `${hoursRemaining} ساعة و ${minutesRemaining} دقيقة`;
         } else {
@@ -720,7 +732,7 @@ class LectureScheduleApp {
     formatDuration(minutes) {
         const hours = Math.floor(minutes / 60);
         const remainingMinutes = minutes % 60;
-        
+
         if (hours > 0 && remainingMinutes > 0) {
             return `${hours} ساعة و ${remainingMinutes} دقيقة`;
         } else if (hours > 0) {
@@ -749,7 +761,7 @@ class LectureScheduleApp {
 
 // تشغيل التطبيق عند تحميل الصفحة
 document.addEventListener('DOMContentLoaded', () => {
-    new LectureScheduleApp();
+    window.lectureApp = new LectureScheduleApp();
 });
 
 // التعامل مع تحديث الصفحة وإعادة التحميل
@@ -759,3 +771,14 @@ window.addEventListener('beforeunload', () => {
         window.lectureApp.saveLectures();
     }
 });
+
+// تسجيل Service Worker عند تحميل الصفحة
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').then(registration => {
+            console.log('ServiceWorker registration successful');
+        }, err => {
+            console.log('ServiceWorker registration failed: ', err);
+        });
+    });
+}
