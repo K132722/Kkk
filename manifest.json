@@ -1,24 +1,27 @@
+
 {
     "name": "جدول المحاضرات الجامعية",
     "short_name": "جدول المحاضرات",
-    "description": "تطبيق لإدارة جدول المحاضرات الجامعية مع إشعارات تلقائية",
-    "start_url": "/",
+    "description": "تطبيق لإدارة جدول المحاضرات الجامعية مع إشعارات تلقائية - يعمل بدون إنترنت",
+    "start_url": "./",
     "display": "standalone",
     "background_color": "#1e3a8a",
     "theme_color": "#2563eb",
-    "orientation": "portrait",
-    "scope": "/",
+    "orientation": "portrait-primary",
+    "scope": "./",
     "lang": "ar",
     "dir": "rtl",
+    "categories": ["education", "productivity", "utilities"],
+    "prefer_related_applications": false,
     "icons": [
         {
-            "src": "/icon-192.png",
+            "src": "./icon-192.png",
             "sizes": "192x192",
             "type": "image/png",
             "purpose": "any maskable"
         },
         {
-            "src": "/icon-512.png",
+            "src": "./icon-512.png",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "any maskable"
@@ -29,32 +32,42 @@
             "name": "إضافة محاضرة",
             "short_name": "إضافة",
             "description": "إضافة محاضرة جديدة للجدول",
-            "url": "/#add-lecture",
+            "url": "./#add-lecture",
             "icons": [
                 {
-                    "src": "/icon-192.png",
-                    "sizes": "192x192"
+                    "src": "./icon-192.png",
+                    "sizes": "192x192",
+                    "type": "image/png"
+                }
+            ]
+        },
+        {
+            "name": "عرض الجدول",
+            "short_name": "الجدول",
+            "description": "عرض جدول المحاضرات الأسبوعي",
+            "url": "./#schedule",
+            "icons": [
+                {
+                    "src": "./icon-192.png",
+                    "sizes": "192x192",
+                    "type": "image/png"
                 }
             ]
         }
     ],
-    "categories": ["education", "productivity"],
     "screenshots": [
         {
-            "src": "/screenshot1.png",
-            "sizes": "1280x720",
-            "type": "image/png"
+            "src": "./icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "form_factor": "wide",
+            "label": "جدول المحاضرات الجامعية"
         }
-    ],
-    "features": [
-        "Cross Platform",
-        "fast",
-        "simple"
     ],
     "protocol_handlers": [
         {
             "protocol": "web+lecture",
-            "url": "/?lecture=%s"
+            "url": "./?lecture=%s"
         }
     ]
 }

@@ -31,25 +31,50 @@ class LectureScheduleApp {
     async registerServiceWorker() {
         if ('serviceWorker' in navigator) {
             try {
-                this.serviceWorkerRegistration = await navigator.serviceWorker.register('sw.js');
+                this.serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js', {
+                    scope: './'
+                });
                 console.log('Service Worker registered successfully');
 
-                // طلب إذن المزامنة في الخلفية
-                if ('periodicSync' in self.registration) {
-                    const status = await navigator.permissions.query({
-                        name: 'periodic-background-sync'
-                    });
-
-                    if (status.state === 'granted') {
-                        await this.serviceWorkerRegistration.periodicSync.register('lecture-notifications', {
-                            minInterval: 12 * 60 * 60 * 1000 // كل 12 ساعة
+                // انتظار تفعيل Service Worker
+                if (this.serviceWorkerRegistration.installing) {
+                    await new Promise((resolve) => {
+                        this.serviceWorkerRegistration.installing.addEventListener('statechange', (e) => {
+                            if (e.target.state === 'activated') {
+                                resolve();
+                            }
                         });
-                        console.log('Periodic background sync registered');
+                    });
+                }
+
+                // طلب إذن المزامنة في الخلفية
+                if ('periodicSync' in window && this.serviceWorkerRegistration.sync) {
+                    try {
+                        await this.serviceWorkerRegistration.sync.register('lecture-notifications');
+                        console.log('Background sync registered');
+                    } catch (error) {
+                        console.log('Background sync not supported:', error);
                     }
                 }
+
+                // إضافة مستمع لتحديثات Service Worker
+                this.serviceWorkerRegistration.addEventListener('updatefound', () => {
+                    const newWorker = this.serviceWorkerRegistration.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // إظهار إشعار بوجود تحديث
+                            this.showAppNotification('يتوفر تحديث جديد. سيتم التحديث عند إعادة تحميل الصفحة.', 'info');
+                        }
+                    });
+                });
+
             } catch (error) {
                 console.error('Service Worker registration failed:', error);
+                this.showAppNotification('فشل في تسجيل الخدمة. بعض الميزات قد لا تعمل بدون إنترنت.', 'warning');
             }
+        } else {
+            console.log('Service Worker not supported');
+            this.showAppNotification('متصفحك لا يدعم العمل بدون إنترنت', 'warning');
         }
     }
 
@@ -511,8 +536,8 @@ class LectureScheduleApp {
                 console.log('Using Service Worker for notification');
                 await this.serviceWorkerRegistration.showNotification(title, {
                     body: body,
-                    icon: '/icon-192.png',
-                    badge: '/icon-192.png',
+                    icon: './icon-192.png',
+                    badge: './icon-192.png',
                     tag: options.tag || 'lecture-notification-' + Date.now(),
                     requireInteraction: true,
                     vibrate: options.vibrate || [500, 200, 500],
@@ -522,12 +547,12 @@ class LectureScheduleApp {
                         {
                             action: 'view',
                             title: 'عرض',
-                            icon: '/icon-192.png'
+                            icon: './icon-192.png'
                         },
                         {
                             action: 'dismiss',
                             title: 'إغلاق',
-                            icon: '/icon-192.png'
+                            icon: './icon-192.png'
                         }
                     ],
                     data: { 
@@ -542,7 +567,7 @@ class LectureScheduleApp {
                 console.log('Using regular notification API');
                 const notification = new Notification(title, {
                     body: body,
-                    icon: '/icon-192.png',
+                    icon: './icon-192.png',
                     tag: options.tag || 'lecture-notification-' + Date.now(),
                     requireInteraction: true,
                     silent: false,

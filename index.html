@@ -5,17 +5,87 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>جدول المحاضرات الجامعية</title>
-    <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="icon-192.png">
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="./manifest.json">
+    
+    <!-- App Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="./icon-512.png">
+    <link rel="apple-touch-icon" href="./icon-192.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png">
+    <link rel="apple-touch-icon" sizes="512x512" href="./icon-512.png">
+    
+    <!-- iOS PWA Support -->
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="جدول المحاضرات">
     <meta name="apple-touch-fullscreen" content="yes">
+    
+    <!-- Android PWA Support -->
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#2196F3">
-    <meta name="msapplication-TileColor" content="#2196F3">
+    <meta name="theme-color" content="#2563eb">
+    
+    <!-- Windows PWA Support -->
+    <meta name="msapplication-TileColor" content="#2563eb">
+    <meta name="msapplication-TileImage" content="./icon-192.png">
     <meta name="msapplication-tap-highlight" content="no">
-    <link href="style.css" rel="stylesheet">
+    <meta name="msapplication-navbutton-color" content="#2563eb">
+    
+    <!-- Prevent zooming on iOS -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" href="./style.css" as="style">
+    <link rel="preload" href="./script.js" as="script">
+    
+    <!-- Styles -->
+    <link href="./style.css" rel="stylesheet">
+    
+    <!-- Offline indication -->
+    <script>
+        // إضافة مؤشر الحالة المتصلة/غير متصلة
+        window.addEventListener('load', () => {
+            function updateOnlineStatus() {
+                const status = navigator.onLine ? 'متصل' : 'غير متصل - يعمل بدون إنترنت';
+                const color = navigator.onLine ? '#22C55E' : '#EF4444';
+                
+                let statusBar = document.getElementById('connection-status');
+                if (!statusBar) {
+                    statusBar = document.createElement('div');
+                    statusBar.id = 'connection-status';
+                    statusBar.style.cssText = `
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        background: ${color};
+                        color: white;
+                        text-align: center;
+                        padding: 5px;
+                        font-size: 12px;
+                        z-index: 10000;
+                        transform: translateY(-100%);
+                        transition: transform 0.3s ease;
+                    `;
+                    document.body.appendChild(statusBar);
+                }
+                
+                statusBar.textContent = status;
+                statusBar.style.background = color;
+                
+                if (!navigator.onLine) {
+                    statusBar.style.transform = 'translateY(0)';
+                    setTimeout(() => {
+                        statusBar.style.transform = 'translateY(-100%)';
+                    }, 3000);
+                }
+            }
+            
+            window.addEventListener('online', updateOnlineStatus);
+            window.addEventListener('offline', updateOnlineStatus);
+            updateOnlineStatus();
+        });
+    </script>
 </head>
 <body>
     <div class="app-container">
