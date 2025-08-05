@@ -125,25 +125,58 @@ class LectureScheduleApp {
             return;
         }
 
-        const permission = await Notification.requestPermission();
+        // طلب الإذن أولاً
+        let permission = await Notification.requestPermission();
+        
+        // للأجهزة التي تتطلب إجراءات إضافية (مثل iOS)
+        if (permission === 'default') {
+            // محاولة ثانية بعد تفاعل المستخدم
+            permission = await Notification.requestPermission();
+        }
+        
         this.notificationPermission = permission;
         this.updateNotificationStatus();
 
         if (permission === 'granted') {
-            this.showAppNotification('تم تفعيل الإشعارات بنجاح!', 'success');
+            this.showAppNotification('تم تفعيل الإشعارات بنجاح! ✅', 'success');
+            
+            // جدولة الإشعارات فوراً
             this.scheduleAllNotifications();
 
-            // طلب إذن المزامنة في الخلفية
-            if ('periodicSync' in self.registration) {
-                try {
+            // طلب أذونات إضافية للعمل في الخلفية
+            try {
+                // طلب إذن المزامنة في الخلفية
+                if (this.serviceWorkerRegistration && 'periodicSync' in window) {
                     await this.serviceWorkerRegistration.periodicSync.register('lecture-notifications', {
-                        minInterval: 12 * 60 * 60 * 1000 // كل 12 ساعة
+                        minInterval: 6 * 60 * 60 * 1000 // كل 6 ساعات
                     });
                     console.log('Periodic background sync registered');
-                } catch (error) {
-                    console.error('Failed to register periodic sync:', error);
                 }
+
+                // طلب إذن البقاء في الخلفية (للأجهزة المدعومة)
+                if ('wakeLock' in navigator) {
+                    console.log('Wake Lock API available');
+                }
+
+                // إرسال إشعار تأكيد
+                setTimeout(() => {
+                    this.sendNotification(
+                        'تم تفعيل نظام التذكير! 🎓',
+                        'سيتم إرسال تذكيرات قبل 5 دقائق من بداية كل محاضرة وعند بدايتها. النظام يعمل حتى عند إغلاق التطبيق.',
+                        {
+                            type: 'setup',
+                            tag: 'setup-confirmation',
+                            requireInteraction: true,
+                            vibrate: [200, 100, 200]
+                        }
+                    );
+                }, 2000);
+
+            } catch (error) {
+                console.error('Failed to register background features:', error);
             }
+        } else if (permission === 'denied') {
+            this.showAppNotification('تم رفض إذن الإشعارات. يمكنك تفعيلها من إعدادات المتصفح.', 'warning');
         } else {
             this.showAppNotification('لم يتم منح إذن الإشعارات', 'warning');
         }
@@ -372,11 +405,14 @@ class LectureScheduleApp {
         this.notificationTimeouts.clear();
 
         if (this.notificationPermission !== 'granted') {
+            console.log('Notification permission not granted, cannot schedule notifications');
             return;
         }
 
         const now = new Date();
         const currentDay = this.getCurrentDayKey();
+
+        console.log('Scheduling notifications for current day:', currentDay, 'at time:', now.toLocaleString('ar-SA'));
 
         this.lectures.forEach(lecture => {
             this.scheduleLectureNotifications(lecture, now, currentDay);
@@ -385,9 +421,10 @@ class LectureScheduleApp {
         // إرسال المحاضرات إلى Service Worker للجدولة في الخلفية
         if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
             this.serviceWorkerRegistration.active.postMessage({
-                type: 'SCHEDULE_LECTURE_NOTIFICATIONS',
+                type: 'SCHEDULE_ALL_LECTURE_NOTIFICATIONS',
                 lectures: this.lectures,
-                currentDay: currentDay
+                currentDay: currentDay,
+                currentTime: now.getTime()
             });
         }
     }
@@ -404,6 +441,18 @@ class LectureScheduleApp {
         return dayMap[new Date().getDay()];
     }
 
+    getCurrentDayKeyForDate(date) {
+        const dayMap = {
+            6: 'saturday',
+            0: 'sunday',
+            1: 'monday',
+            2: 'tuesday',
+            3: 'wednesday',
+            4: 'thursday'
+        };
+        return dayMap[date.getDay()];
+    }
+
     scheduleLectureNotifications(lecture, now, currentDay) {
         const [hours, minutes] = lecture.startTime.split(':').map(Number);
 
@@ -411,7 +460,10 @@ class LectureScheduleApp {
         const lectureTime = new Date(now);
         lectureTime.setHours(hours, minutes, 0, 0);
 
-        console.log(`Scheduling notifications for lecture: ${lecture.subject} at ${lecture.startTime}`);
+        const lectureDuration = this.formatDuration(lecture.duration);
+
+        console.log(`Scheduling notifications for lecture: ${lecture.subject} at ${lecture.startTime} on ${lecture.day}`);
+        console.log(`Current time: ${now.toLocaleTimeString('ar-SA')}, Lecture time: ${lectureTime.toLocaleTimeString('ar-SA')}`);
 
         // إذا كانت المحاضرة اليوم
         if (lecture.day === currentDay) {
@@ -419,28 +471,37 @@ class LectureScheduleApp {
             const reminderTime = new Date(lectureTime.getTime() - 5 * 60 * 1000);
             if (reminderTime > now) {
                 const delay = reminderTime.getTime() - now.getTime();
-                console.log(`Reminder scheduled in ${delay}ms for lecture ${lecture.id}`);
+                console.log(`Reminder scheduled in ${Math.round(delay/1000)} seconds for lecture ${lecture.id}`);
+
+                const reminderMessage = `محاضرة ${lecture.subject} ستبدأ بعد 5 دقائق مع ${lecture.professor} في القاعة ${lecture.room} - مدة المحاضرة: ${lectureDuration}`;
 
                 // استخدام Service Worker للجدولة
                 if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
                     this.serviceWorkerRegistration.active.postMessage({
                         type: 'SCHEDULE_LECTURE_NOTIFICATION',
                         title: 'تذكير: محاضرة قريبة ⏰',
-                        body: `محاضرة ${lecture.subject} ستبدأ بعد 5 دقائق مع ${lecture.professor} في القاعة ${lecture.room}`,
+                        body: reminderMessage,
                         delay: delay,
                         lectureId: lecture.id,
-                        notificationType: 'reminder'
+                        notificationType: 'reminder',
+                        scheduledTime: reminderTime.getTime(),
+                        icon: './icon-192.png',
+                        badge: './icon-192.png',
+                        requireInteraction: true,
+                        silent: false,
+                        vibrate: [500, 200, 500, 200, 500]
                     });
                 } else {
                     // جدولة مباشرة إذا لم يكن Service Worker متاحاً
                     const timeoutId = setTimeout(() => {
                         this.sendNotification(
                             'تذكير: محاضرة قريبة ⏰',
-                            `محاضرة ${lecture.subject} ستبدأ بعد 5 دقائق مع ${lecture.professor} في القاعة ${lecture.room}`,
+                            reminderMessage,
                             {
                                 type: 'lecture',
                                 tag: `reminder-${lecture.id}`,
-                                vibrate: [200, 100, 200],
+                                vibrate: [500, 200, 500, 200, 500],
+                                requireInteraction: true,
                                 data: { lectureId: lecture.id, type: 'reminder' }
                             }
                         );
@@ -452,26 +513,35 @@ class LectureScheduleApp {
             // إشعار عند بداية المحاضرة
             if (lectureTime > now) {
                 const delay = lectureTime.getTime() - now.getTime();
-                console.log(`Start notification scheduled in ${delay}ms for lecture ${lecture.id}`);
+                console.log(`Start notification scheduled in ${Math.round(delay/1000)} seconds for lecture ${lecture.id}`);
+
+                const startMessage = `محاضرة ${lecture.subject} بدأت الآن مع ${lecture.professor} في القاعة ${lecture.room} - مدة المحاضرة: ${lectureDuration}`;
 
                 if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
                     this.serviceWorkerRegistration.active.postMessage({
                         type: 'SCHEDULE_LECTURE_NOTIFICATION',
                         title: 'بداية المحاضرة 🎓',
-                        body: `محاضرة ${lecture.subject} بدأت الآن في القاعة ${lecture.room}`,
+                        body: startMessage,
                         delay: delay,
                         lectureId: lecture.id,
-                        notificationType: 'start'
+                        notificationType: 'start',
+                        scheduledTime: lectureTime.getTime(),
+                        icon: './icon-192.png',
+                        badge: './icon-192.png',
+                        requireInteraction: true,
+                        silent: false,
+                        vibrate: [800, 200, 800, 200, 800]
                     });
                 } else {
                     const timeoutId = setTimeout(() => {
                         this.sendNotification(
                             'بداية المحاضرة 🎓',
-                            `محاضرة ${lecture.subject} بدأت الآن في القاعة ${lecture.room}`,
+                            startMessage,
                             {
                                 type: 'lecture',
                                 tag: `start-${lecture.id}`,
-                                vibrate: [300, 100, 300],
+                                vibrate: [800, 200, 800, 200, 800],
+                                requireInteraction: true,
                                 data: { lectureId: lecture.id, type: 'start' }
                             }
                         );
@@ -481,29 +551,49 @@ class LectureScheduleApp {
             }
         }
 
-        // جدولة المحاضرات للأسبوع القادم (محدود للمحاضرات القريبة)
-        const daysUntilLecture = this.getDaysUntilNextOccurrence(lecture.day, currentDay);
-        if (daysUntilLecture > 0 && daysUntilLecture <= 2) { // جدول فقط للمحاضرات في اليومين القادمين
-            const nextLectureDate = new Date(now);
-            nextLectureDate.setDate(nextLectureDate.getDate() + daysUntilLecture);
-            nextLectureDate.setHours(hours, minutes, 0, 0);
+        // جدولة المحاضرات للأيام القادمة (لمدة أسبوع)
+        for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
+            const futureDate = new Date(now);
+            futureDate.setDate(futureDate.getDate() + dayOffset);
+            const futureDayKey = this.getCurrentDayKeyForDate(futureDate);
 
-            const reminderTime = new Date(nextLectureDate.getTime() - 5 * 60 * 1000);
+            if (futureDayKey === lecture.day) {
+                const futureLectureTime = new Date(futureDate);
+                futureLectureTime.setHours(hours, minutes, 0, 0);
 
-            if (reminderTime > now) {
-                const delay = reminderTime.getTime() - now.getTime();
-                console.log(`Future reminder scheduled in ${delay}ms for lecture ${lecture.id}`);
+                const futureReminderTime = new Date(futureLectureTime.getTime() - 5 * 60 * 1000);
 
-                if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-                    this.serviceWorkerRegistration.active.postMessage({
-                        type: 'SCHEDULE_LECTURE_NOTIFICATION',
-                        title: 'تذكير: محاضرة قريبة ⏰',
-                        body: `محاضرة ${lecture.subject} ستبدأ بعد 5 دقائق مع ${lecture.professor} في القاعة ${lecture.room}`,
-                        delay: delay,
-                        lectureId: lecture.id,
-                        notificationType: 'future_reminder'
-                    });
+                if (futureReminderTime > now) {
+                    const delay = futureReminderTime.getTime() - now.getTime();
+                    
+                    // جدولة فقط للأسبوع القادم (تجنب الجدولة المفرطة)
+                    if (delay <= 7 * 24 * 60 * 60 * 1000) { // أسبوع واحد
+                        console.log(`Future reminder scheduled for ${futureLectureTime.toLocaleString('ar-SA')} in ${Math.round(delay/1000)} seconds`);
+
+                        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
+                            this.serviceWorkerRegistration.active.postMessage({
+                                type: 'SCHEDULE_LECTURE_NOTIFICATION',
+                                title: 'تذكير: محاضرة قريبة ⏰',
+                                body: `محاضرة ${lecture.subject} ستبدأ بعد 5 دقائق مع ${lecture.professor} في القاعة ${lecture.room} - مدة المحاضرة: ${lectureDuration}`,
+                                delay: delay,
+                                lectureId: `${lecture.id}-future-${dayOffset}`,
+                                notificationType: 'future_reminder',
+                                scheduledTime: futureReminderTime.getTime()
+                            });
+
+                            this.serviceWorkerRegistration.active.postMessage({
+                                type: 'SCHEDULE_LECTURE_NOTIFICATION',
+                                title: 'بداية المحاضرة 🎓',
+                                body: `محاضرة ${lecture.subject} بدأت الآن مع ${lecture.professor} في القاعة ${lecture.room} - مدة المحاضرة: ${lectureDuration}`,
+                                delay: delay + (5 * 60 * 1000),
+                                lectureId: `${lecture.id}-future-start-${dayOffset}`,
+                                notificationType: 'future_start',
+                                scheduledTime: futureLectureTime.getTime()
+                            });
+                        }
+                    }
                 }
+                break; // توقف عند العثور على أول تكرار للمحاضرة
             }
         }
     }
@@ -599,35 +689,76 @@ class LectureScheduleApp {
             return;
         }
 
-        this.showAppNotification('سيتم إرسال إشعار تجريبي خلال 5 ثوانٍ...', 'info');
+        this.showAppNotification('سيتم إرسال إشعار تجريبي خلال 3 ثوانٍ...', 'info');
+
+        // إرسال إشعار تجريبي مع نفس تنسيق إشعارات المحاضرات
+        const testLecture = {
+            subject: 'الدوائر الكهربائية',
+            professor: 'د. عادل راوع',
+            room: 'D-403',
+            duration: 120
+        };
+
+        const lectureDuration = this.formatDuration(testLecture.duration);
 
         // إرسال إشعار عبر Service Worker
         if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
             console.log('Sending test notification via Service Worker');
+            
+            // إشعار تذكير تجريبي
             this.serviceWorkerRegistration.active.postMessage({
                 type: 'SCHEDULE_TEST_NOTIFICATION',
-                title: 'مرحباً بك في برنامج جدول محاضراتي! 📚',
-                body: 'هذا إشعار تجريبي للتأكد من أن الإشعارات تعمل بشكل صحيح. الآن يمكنك استقبال تذكيرات المحاضرات!',
-                delay: 5000
+                title: 'تذكير: محاضرة قريبة ⏰ (تجريبي)',
+                body: `محاضرة ${testLecture.subject} ستبدأ بعد 5 دقائق مع ${testLecture.professor} في القاعة ${testLecture.room} - مدة المحاضرة: ${lectureDuration}`,
+                delay: 3000
             });
+
+            // إشعار بداية تجريبي
+            setTimeout(() => {
+                this.serviceWorkerRegistration.active.postMessage({
+                    type: 'SCHEDULE_TEST_NOTIFICATION',
+                    title: 'بداية المحاضرة 🎓 (تجريبي)',
+                    body: `محاضرة ${testLecture.subject} بدأت الآن مع ${testLecture.professor} في القاعة ${testLecture.room} - مدة المحاضرة: ${lectureDuration}`,
+                    delay: 1000
+                });
+            }, 8000);
+
         } else {
             // إرسال مباشر إذا لم يكن Service Worker متاحاً
             setTimeout(() => {
                 this.sendNotification(
-                    'مرحباً بك في برنامج جدول محاضراتي! 📚',
-                    'هذا إشعار تجريبي للتأكد من أن الإشعارات تعمل بشكل صحيح. الآن يمكنك استقبال تذكيرات المحاضرات!',
+                    'تذكير: محاضرة قريبة ⏰ (تجريبي)',
+                    `محاضرة ${testLecture.subject} ستبدأ بعد 5 دقائق مع ${testLecture.professor} في القاعة ${testLecture.room} - مدة المحاضرة: ${lectureDuration}`,
                     {
                         type: 'test',
-                        tag: 'test-notification',
-                        vibrate: [500, 200, 500]
+                        tag: 'test-reminder',
+                        vibrate: [500, 200, 500, 200, 500],
+                        requireInteraction: true
                     }
                 );
-            }, 5000);
+            }, 3000);
+
+            setTimeout(() => {
+                this.sendNotification(
+                    'بداية المحاضرة 🎓 (تجريبي)',
+                    `محاضرة ${testLecture.subject} بدأت الآن مع ${testLecture.professor} في القاعة ${testLecture.room} - مدة المحاضرة: ${lectureDuration}`,
+                    {
+                        type: 'test',
+                        tag: 'test-start',
+                        vibrate: [800, 200, 800, 200, 800],
+                        requireInteraction: true
+                    }
+                );
+            }, 8000);
         }
 
         setTimeout(() => {
-            this.showAppNotification('تم إرسال الإشعار التجريبي!', 'success');
-        }, 5500);
+            this.showAppNotification('تم إرسال الإشعارات التجريبية! تحقق من وصولها.', 'success');
+        }, 4000);
+
+        setTimeout(() => {
+            this.showAppNotification('إذا لم تصلك الإشعارات، تأكد من إعدادات الإشعارات في متصفحك أو جهازك.', 'info');
+        }, 12000);
     }
 
     updateCurrentInfo() {
