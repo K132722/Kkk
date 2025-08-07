@@ -5,6 +5,9 @@ class LectureScheduleApp {
         this.notificationPermission = 'default';
         this.notificationTimeouts = new Map();
         this.serviceWorkerRegistration = null;
+        this.userId = this.generateUserId();
+        this.backendUrl = window.location.origin; // استخدام نفس النطاق
+        this.vapidPublicKey = null;
 
         this.init();
     }
@@ -13,6 +16,7 @@ class LectureScheduleApp {
         this.setupEventListeners();
         this.renderSchedule();
         await this.registerServiceWorker();
+        await this.initBackendConnection();
         this.checkNotificationPermission();
         this.scheduleAllNotifications();
         this.updateCurrentInfo();
@@ -26,6 +30,11 @@ class LectureScheduleApp {
         setInterval(() => {
             this.scheduleAllNotifications();
         }, 60000);
+
+        // مزامنة البيانات مع الخادم كل 5 دقائق
+        setInterval(() => {
+            this.syncWithBackend();
+        }, 300000);
     }
 
     async registerServiceWorker() {
@@ -146,6 +155,112 @@ class LectureScheduleApp {
         });
     }
 
+    // إنشاء معرف مستخدم فريد
+    generateUserId() {
+        let userId = localStorage.getItem('userId');
+        if (!userId) {
+            userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('userId', userId);
+        }
+        return userId;
+    }
+
+    // تهيئة الاتصال بالخادم الخلفي
+    async initBackendConnection() {
+        try {
+            // الحصول على المفتاح العام VAPID
+            const response = await fetch(`${this.backendUrl}/api/vapid-public-key`);
+            if (response.ok) {
+                const data = await response.json();
+                this.vapidPublicKey = data.publicKey;
+                console.log('تم الحصول على المفتاح العام من الخادم');
+            } else {
+                console.warn('تعذر الحصول على المفتاح العام، استخدام النظام المحلي');
+            }
+        } catch (error) {
+            console.warn('فشل الاتصال بالخادم، استخدام النظام المحلي:', error);
+        }
+    }
+
+    // تسجيل الاشتراك مع الخادم
+    async registerWithBackend(subscription) {
+        try {
+            const response = await fetch(`${this.backendUrl}/api/subscribe`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    userId: this.userId,
+                    subscription: subscription,
+                    lectureSchedule: this.lectures
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log('تم تسجيل الاشتراك مع الخادم:', data.message);
+                this.showAppNotification('تم تفعيل الإشعارات الخلفية! ستصلك التذكيرات حتى عند إغلاق التطبيق', 'success');
+                return true;
+            } else {
+                console.warn('فشل تسجيل الاشتراك مع الخادم');
+                return false;
+            }
+        } catch (error) {
+            console.warn('خطأ في تسجيل الاشتراك مع الخادم:', error);
+            return false;
+        }
+    }
+
+    // مزامنة البيانات مع الخادم
+    async syncWithBackend() {
+        try {
+            const response = await fetch(`${this.backendUrl}/api/update-schedule`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    userId: this.userId,
+                    lectureSchedule: this.lectures
+                })
+            });
+
+            if (response.ok) {
+                console.log('تم تحديث جدول المحاضرات على الخادم');
+            }
+        } catch (error) {
+            console.warn('فشل في مزامنة البيانات مع الخادم:', error);
+        }
+    }
+
+    // إرسال إشعار تجريبي من الخادم
+    async sendBackendTestNotification() {
+        try {
+            const response = await fetch(`${this.backendUrl}/api/test-notification`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    userId: this.userId
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                console.log('تم إرسال الإشعار التجريبي من الخادم:', data.message);
+                return true;
+            } else {
+                console.warn('فشل في إرسال الإشعار التجريبي من الخادم');
+                return false;
+            }
+        } catch (error) {
+            console.warn('خطأ في إرسال الإشعار التجريبي من الخادم:', error);
+            return false;
+        }
+    }
+
     async requestNotificationPermission() {
         if (!('Notification' in window)) {
             this.showAppNotification('الإشعارات غير مدعومة في هذا المتصفح', 'warning');
@@ -215,6 +330,28 @@ class LectureScheduleApp {
                         } catch (error) {
                             console.log('Wake lock not supported:', error);
                         }
+                    }
+                }
+
+                // تسجيل الاشتراك مع الخادم الخلفي
+                if (this.serviceWorkerRegistration) {
+                    try {
+                        const subscription = await this.serviceWorkerRegistration.pushManager.subscribe({
+                            userVisibleOnly: true,
+                            applicationServerKey: this.vapidPublicKey || this.urlBase64ToUint8Array('BKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZL-OKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZL')
+                        });
+
+                        // تسجيل مع الخادم الخلفي
+                        const backendRegistered = await this.registerWithBackend(subscription);
+                        
+                        if (backendRegistered) {
+                            console.log('تم تسجيل الاشتراك مع كل من Service Worker والخادم الخلفي');
+                        } else {
+                            console.log('تم تسجيل الاشتراك مع Service Worker فقط');
+                        }
+                    } catch (error) {
+                        console.warn('فشل في تسجيل Push Manager:', error);
+                        // الاستمرار مع Service Worker فقط
                     }
                 }
 
@@ -325,6 +462,9 @@ class LectureScheduleApp {
         localStorage.setItem('lectures', JSON.stringify(this.lectures));
         this.saveToIndexedDB();
         this.sendLectureDataToServiceWorker();
+        
+        // مزامنة مع الخادم الخلفي
+        this.syncWithBackend();
     }
 
     // حفظ البيانات في IndexedDB للوصول من Service Worker
@@ -796,13 +936,22 @@ class LectureScheduleApp {
         }
     }
 
-    testNotification() {
+    async testNotification() {
         if (this.notificationPermission !== 'granted') {
             this.showAppNotification('يجب تفعيل الإشعارات أولاً', 'warning');
             return;
         }
 
-        this.showAppNotification('سيتم إرسال إشعار تجريبي خلال 3 ثوانٍ...', 'info');
+        this.showAppNotification('سيتم إرسال إشعارات تجريبية من النظام المحلي والخادم الخلفي...', 'info');
+
+        // إرسال إشعار تجريبي من الخادم الخلفي
+        const backendSent = await this.sendBackendTestNotification();
+        
+        if (backendSent) {
+            this.showAppNotification('تم إرسال إشعارات تجريبية من الخادم الخلفي!', 'success');
+        } else {
+            this.showAppNotification('سيتم إرسال إشعارات تجريبية من النظام المحلي فقط', 'info');
+        }
 
         // إرسال إشعار تجريبي مع نفس تنسيق إشعارات المحاضرات
         const testLecture = {
@@ -1009,6 +1158,22 @@ class LectureScheduleApp {
         } else {
             return `${remainingMinutes} دقيقة`;
         }
+    }
+
+    // تحويل VAPID key من base64 إلى Uint8Array
+    urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding)
+            .replace(/-/g, '+')
+            .replace(/_/g, '/');
+
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+
+        for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
     }
 
     showAppNotification(message, type = 'info') {
