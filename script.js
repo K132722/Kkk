@@ -6,7 +6,7 @@ class LectureScheduleApp {
         this.notificationTimeouts = new Map();
         this.serviceWorkerRegistration = null;
         this.userId = this.generateUserId();
-        this.backendUrl = 'https://kkk-1.onrender.com'; // تم التحديث إلى الرابط الجديد
+        this.backendUrl = 'https://kkk-2.onrender.com'; // تم التحديث إلى الرابط الجديد
         this.vapidPublicKey = 'BIjzsU9yiNL5ZTiw12QI2NYuPbLcdq4WdoLvTRBsd5dLiIhpGhMpi56jQEd830v-mPsqqwFWMPziZcbp4S-wc18'; // المفتاح العام الجديد
 
         this.init();
