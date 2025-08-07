@@ -40,8 +40,8 @@ app.use(express.static('.', {
 
 // مفاتيح VAPID الحقيقية - يمكنك توليدها بتشغيل: npx web-push generate-vapid-keys
 const vapidKeys = {
-  publicKey: process.env.VAPID_PUBLIC_KEY || 'BNjbTMoaEhHW9XfJ5Y2CxZc4Kf7L9QfH6qW3VxM8Zb1mN5rY7tG9KcQ2wRvP3sX6zA9mD1fG8HjK5L3MnP2qR4sT6vY8zA',
-  privateKey: process.env.VAPID_PRIVATE_KEY || 'abcdefghijklmnopqrstuvwxyz123456789012345678901234567890'
+  publicKey: "BIjzsU9yiNL5ZTiw12QI2NYuPbLcdq4WdoLvTRBsd5dLiIhpGhMpi56jQEd830v-mPsqqwFWMPziZcbp4S-wc18",
+  privateKey: "EHAbGuF05fzIBSyfX1o2c-Ffx2qLsRX703NSVKg-i6E"
 };
 
 // إعداد web-push
