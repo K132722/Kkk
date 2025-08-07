@@ -19,8 +19,10 @@ app.use(helmet({
 }));
 app.use(compression());
 app.use(cors({
-  origin: '*',
-  credentials: true
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -36,10 +38,10 @@ app.use(express.static('.', {
   }
 }));
 
-// مفاتيح VAPID - يجب تغييرها في الإنتاج
+// مفاتيح VAPID الحقيقية - يمكنك توليدها بتشغيل: npx web-push generate-vapid-keys
 const vapidKeys = {
-  publicKey: 'BKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZL-OKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZL',
-  privateKey: 'MKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZ'
+  publicKey: process.env.VAPID_PUBLIC_KEY || 'BNjbTMoaEhHW9XfJ5Y2CxZc4Kf7L9QfH6qW3VxM8Zb1mN5rY7tG9KcQ2wRvP3sX6zA9mD1fG8HjK5L3MnP2qR4sT6vY8zA',
+  privateKey: process.env.VAPID_PRIVATE_KEY || 'abcdefghijklmnopqrstuvwxyz123456789012345678901234567890'
 };
 
 // إعداد web-push
@@ -152,6 +154,16 @@ app.get('/api/stats', (req, res) => {
     totalSchedules: lectureSchedules.size,
     serverStartTime: serverStartTime,
     uptime: Date.now() - serverStartTime
+  });
+});
+
+// endpoint للتحقق من حالة الخادم (يستخدمه Render للـ health check)
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    uptime: Date.now() - serverStartTime,
+    subscriptions: subscriptions.size
   });
 });
 
@@ -310,6 +322,30 @@ async function sendLectureReminder(userId, lecture, minutesBefore = 5) {
   }
 }
 
+// فحص عاجل للمحاضرات التي ستبدأ خلال دقيقتين
+function checkUrgentLectures() {
+  const now = new Date();
+  const currentDay = getCurrentDayKey(now);
+  const currentTime = now.getHours() * 60 + now.getMinutes();
+
+  for (const [userId, lectures] of lectureSchedules) {
+    if (!subscriptions.has(userId)) continue;
+
+    lectures.forEach(lecture => {
+      if (lecture.day === currentDay) {
+        const [hours, minutes] = lecture.startTime.split(':').map(Number);
+        const lectureTime = hours * 60 + minutes;
+        const timeDiff = lectureTime - currentTime;
+
+        // إشعار عاجل للمحاضرات التي ستبدأ خلال دقيقتين
+        if (timeDiff >= 1 && timeDiff <= 2) {
+          sendLectureReminder(userId, lecture, timeDiff);
+        }
+      }
+    });
+  }
+}
+
 // فحص المحاضرات وإرسال التذكيرات
 function checkLecturesAndSendReminders() {
   const now = new Date();
@@ -354,9 +390,22 @@ function getCurrentDayKey(date) {
   return dayMap[date.getDay()];
 }
 
-// جدولة فحص المحاضرات كل دقيقة
+// جدولة فحص المحاضرات كل دقيقة مع ضمان العمل المستمر
 cron.schedule('* * * * *', () => {
-  checkLecturesAndSendReminders();
+  try {
+    checkLecturesAndSendReminders();
+  } catch (error) {
+    console.error('خطأ في فحص المحاضرات:', error);
+  }
+});
+
+// فحص إضافي كل 30 ثانية للتأكد من الإشعارات المهمة
+cron.schedule('*/30 * * * * *', () => {
+  try {
+    checkUrgentLectures();
+  } catch (error) {
+    console.error('خطأ في الفحص العاجل:', error);
+  }
 });
 
 // تنظيف الاشتراكات المنتهية الصلاحية كل ساعة

@@ -6,7 +6,7 @@ class LectureScheduleApp {
         this.notificationTimeouts = new Map();
         this.serviceWorkerRegistration = null;
         this.userId = this.generateUserId();
-        this.backendUrl = window.location.origin; // استخدام نفس النطاق
+        this.backendUrl = 'https://your-app-name.onrender.com'; // استبدل your-app-name باسم تطبيقك على Render
         this.vapidPublicKey = null;
 
         this.init();
@@ -338,7 +338,7 @@ class LectureScheduleApp {
                     try {
                         const subscription = await this.serviceWorkerRegistration.pushManager.subscribe({
                             userVisibleOnly: true,
-                            applicationServerKey: this.vapidPublicKey || this.urlBase64ToUint8Array('BKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZL-OKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZL')
+                            applicationServerKey: this.vapidPublicKey ? this.urlBase64ToUint8Array(this.vapidPublicKey) : this.urlBase64ToUint8Array('BKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZL-OKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZL')
                         });
 
                         // تسجيل مع الخادم الخلفي
