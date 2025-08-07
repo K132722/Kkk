@@ -6,7 +6,7 @@ class LectureScheduleApp {
         this.notificationTimeouts = new Map();
         this.serviceWorkerRegistration = null;
         this.userId = this.generateUserId();
-        this.backendUrl = 'https://kkk-3.onrender.com'; // تم التحديث إلى الرابط الجديد
+        this.backendUrl = 'https://kkk-4.onrender.com'; // تم التحديث إلى الرابط الجديد
         this.vapidPublicKey = 'BIjzsU9yiNL5ZTiw12QI2NYuPbLcdq4WdoLvTRBsd5dLiIhpGhMpi56jQEd830v-mPsqqwFWMPziZcbp4S-wc18'; // المفتاح العام الجديد
 
         this.init();
@@ -45,71 +45,45 @@ class LectureScheduleApp {
                 console.log('Service Worker registered successfully');
 
                 // انتظار تفعيل Service Worker
-                if (this.serviceWorkerRegistration.installing) {
-                    await new Promise((resolve) => {
+                await new Promise((resolve) => {
+                    if (this.serviceWorkerRegistration.installing) {
                         this.serviceWorkerRegistration.installing.addEventListener('statechange', (e) => {
                             if (e.target.state === 'activated') {
                                 resolve();
                             }
                         });
-                    });
-                }
-
-                // انتظار Service Worker النشط
-                if (!this.serviceWorkerRegistration.active) {
-                    await new Promise((resolve) => {
-                        if (this.serviceWorkerRegistration.waiting) {
-                            this.serviceWorkerRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
-                        }
-                        this.serviceWorkerRegistration.addEventListener('controllerchange', resolve);
-                    });
-                }
-
-                // حفظ البيانات في IndexedDB
-                await this.saveToIndexedDB();
-
-                // طلب إذن المزامنة في الخلفية
-                if ('periodicSync' in window && this.serviceWorkerRegistration.sync) {
-                    try {
-                        await this.serviceWorkerRegistration.sync.register('lecture-notifications');
-                        console.log('Background sync registered');
-                    } catch (error) {
-                        console.log('Background sync not supported:', error);
+                    } else {
+                        resolve();
                     }
-                }
-
-                // تسجيل المزامنة الدورية إذا كانت مدعومة
-                if ('periodicSync' in window && this.serviceWorkerRegistration.periodicSync) {
-                    try {
-                        await this.serviceWorkerRegistration.periodicSync.register('lecture-check', {
-                            minInterval: 5 * 60 * 1000 // كل 5 دقائق
-                        });
-                        console.log('Periodic sync registered');
-                    } catch (error) {
-                        console.log('Periodic sync not supported:', error);
-                    }
-                }
-
-                // إضافة مستمع لتحديثات Service Worker
-                this.serviceWorkerRegistration.addEventListener('updatefound', () => {
-                    const newWorker = this.serviceWorkerRegistration.installing;
-                    newWorker.addEventListener('statechange', () => {
-                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            this.showAppNotification('يتوفر تحديث جديد. سيتم التحديث عند إعادة تحميل الصفحة.', 'info');
-                        }
-                    });
                 });
 
-                // إرسال البيانات إلى Service Worker فوراً
+                // إرسال بيانات المحاضرات فوراً
                 this.sendLectureDataToServiceWorker();
+
+                // تسجيل Push Subscription
+                await this.registerPushSubscription();
 
             } catch (error) {
                 console.error('Service Worker registration failed:', error);
-                this.showAppNotification('فشل في تسجيل الخدمة. بعض الميزات قد لا تعمل بدون إنترنت.', 'warning');
             }
-        } else {
-            console.log('Service Worker not supported');
-            this.showAppNotification('متصفحك لا يدعم العمل بدون إنترنت', 'warning');
+        }
+    }
+
+    async registerPushSubscription() {
+        if (!this.serviceWorkerRegistration) return;
+
+        try {
+            const subscription = await this.serviceWorkerRegistration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: this.urlBase64ToUint8Array(this.vapidPublicKey)
+            });
+
+            // تسجيل الاشتراك مع الخادم
+            await this.registerWithBackend(subscription);
+
+            console.log('Push subscription registered successfully');
+        } catch (error) {
+            console.error('Push subscription failed:', error);
         }
     }
 
