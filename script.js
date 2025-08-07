@@ -6,12 +6,11 @@ class LectureScheduleApp {
         this.notificationTimeouts = new Map();
         this.serviceWorkerRegistration = null;
         this.userId = this.generateUserId();
-        this.backendUrl = 'https://your-app-name.onrender.com'; // استبدل your-app-name باسم تطبيقك على Render
-        this.vapidPublicKey = null;
+        this.backendUrl = 'https://kkk-1.onrender.com'; // تم التحديث إلى الرابط الجديد
+        this.vapidPublicKey = 'BIjzsU9yiNL5ZTiw12QI2NYuPbLcdq4WdoLvTRBsd5dLiIhpGhMpi56jQEd830v-mPsqqwFWMPziZcbp4S-wc18'; // المفتاح العام الجديد
 
         this.init();
     }
-
     async init() {
         this.setupEventListeners();
         this.renderSchedule();
@@ -267,129 +266,50 @@ class LectureScheduleApp {
             return;
         }
 
-        // طلب الإذن مع معالجة خاصة لـ iOS
         let permission = await Notification.requestPermission();
-        
-        // للأجهزة التي تتطلب إجراءات إضافية (مثل iOS)
+
         if (permission === 'default') {
-            // إظهار تعليمات إضافية للمستخدم
             this.showAppNotification('اضغط "السماح" عندما يظهر طلب الإذن', 'info');
-            
-            // محاولة ثانية بعد تفاعل المستخدم
             await new Promise(resolve => setTimeout(resolve, 1000));
             permission = await Notification.requestPermission();
         }
-        
+
         this.notificationPermission = permission;
         this.updateNotificationStatus();
 
         if (permission === 'granted') {
             this.showAppNotification('تم تفعيل الإشعارات بنجاح! ✅', 'success');
-            
-            // حفظ الإعدادات في localStorage
             localStorage.setItem('notificationsEnabled', 'true');
             localStorage.setItem('lectureSchedule', JSON.stringify(this.lectures));
-            
-            // جدولة الإشعارات فوراً
             this.scheduleAllNotifications();
 
-            // طلب أذونات إضافية للعمل في الخلفية
             try {
-                // تسجيل Service Worker للإشعارات الخلفية
                 if (this.serviceWorkerRegistration) {
-                    // إرسال جدول المحاضرات إلى Service Worker
-                    this.serviceWorkerRegistration.active.postMessage({
-                        type: 'INIT_LECTURE_SCHEDULE',
-                        lectures: this.lectures,
-                        notificationsEnabled: true
+                    // تسجيل الاشتراك مع Push Service
+                    const subscription = await this.serviceWorkerRegistration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: this.urlBase64ToUint8Array(this.vapidPublicKey)
                     });
 
-                    // طلب إذن المزامنة الدورية للمتصفحات المدعومة
-                    if ('periodicSync' in window && this.serviceWorkerRegistration.periodicSync) {
-                        try {
-                            await this.serviceWorkerRegistration.periodicSync.register('lecture-check', {
-                                minInterval: 5 * 60 * 1000 // كل 5 دقائق
-                            });
-                            console.log('Periodic sync registered for lecture notifications');
-                        } catch (error) {
-                            console.log('Periodic sync not supported:', error);
-                        }
-                    }
+                    // تسجيل مع الخادم الخلفي
+                    await this.registerWithBackend(subscription);
 
-                    // طلب إذن البقاء في الخلفية للأجهزة المدعومة
-                    if ('wakeLock' in navigator) {
-                        try {
-                            const wakeLock = await navigator.wakeLock.request('screen');
-                            console.log('Wake lock acquired');
-                            
-                            // إطلاق الـ wake lock بعد 30 ثانية لتوفير البطارية
-                            setTimeout(() => {
-                                wakeLock.release();
-                                console.log('Wake lock released');
-                            }, 30000);
-                        } catch (error) {
-                            console.log('Wake lock not supported:', error);
-                        }
-                    }
-                }
-
-                // تسجيل الاشتراك مع الخادم الخلفي
-                if (this.serviceWorkerRegistration) {
-                    try {
-                        const subscription = await this.serviceWorkerRegistration.pushManager.subscribe({
-                            userVisibleOnly: true,
-                            applicationServerKey: this.vapidPublicKey ? this.urlBase64ToUint8Array(this.vapidPublicKey) : this.urlBase64ToUint8Array('BKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZL-OKnKZ3nALKyzFr4UHBRhKUBOV9DvhV-6Lx5W-YZ5LrZL')
-                        });
-
-                        // تسجيل مع الخادم الخلفي
-                        const backendRegistered = await this.registerWithBackend(subscription);
-                        
-                        if (backendRegistered) {
-                            console.log('تم تسجيل الاشتراك مع كل من Service Worker والخادم الخلفي');
-                        } else {
-                            console.log('تم تسجيل الاشتراك مع Service Worker فقط');
-                        }
-                    } catch (error) {
-                        console.warn('فشل في تسجيل Push Manager:', error);
-                        // الاستمرار مع Service Worker فقط
-                    }
-                }
-
-                // إرسال البيانات إلى Service Worker
-                this.sendLectureDataToServiceWorker();
-
-                // إرسال إشعار تأكيد يوضح للمستخدم أن النظام يعمل
-                setTimeout(() => {
-                    this.sendNotification(
-                        'نظام التذكير جاهز! 🎓',
-                        'سيتم إرسال التذكيرات تلقائياً:\n• قبل 5 دقائق من بداية المحاضرة\n• عند بداية المحاضرة\n\nالنظام يعمل بشكل مستمر حتى عند إغلاق التطبيق أو الجهاز تماماً!',
-                        {
-                            type: 'setup',
-                            tag: 'setup-confirmation',
-                            requireInteraction: true,
-                            vibrate: [300, 100, 300, 100, 300],
-                            icon: './icon-192.png',
-                            badge: './icon-192.png'
-                        }
-                    );
-                }, 2000);
-
-                // إرسال تعليمات إضافية للـ iPhone
-                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-                if (isIOS) {
+                    // إرسال تأكيد للمستخدم
                     setTimeout(() => {
-                        this.showAppNotification('لضمان وصول الإشعارات على iPhone:\n1. أضف التطبيق للشاشة الرئيسية\n2. فعل الإشعارات في إعدادات iPhone > الإشعارات', 'info');
-                    }, 5000);
+                        this.sendNotification(
+                            'نظام التذكير جاهز! 🎓',
+                            'سيتم إرسال التذكيرات تلقائياً حتى عند إغلاق التطبيق',
+                            {
+                                type: 'setup',
+                                tag: 'setup-confirmation',
+                                requireInteraction: true
+                            }
+                        );
+                    }, 2000);
                 }
-
             } catch (error) {
-                console.error('Failed to register background features:', error);
-                this.showAppNotification('تم تفعيل الإشعارات، لكن بعض الميزات المتقدمة قد لا تعمل', 'warning');
+                console.error('Error in push registration:', error);
             }
-        } else if (permission === 'denied') {
-            this.showAppNotification('تم رفض إذن الإشعارات. لتفعيلها:\n• Chrome: إعدادات > الخصوصية والأمان > إعدادات الموقع > الإشعارات\n• Safari: تفضيلات > مواقع الويب > الإشعارات', 'warning');
-        } else {
-            this.showAppNotification('لم يتم منح إذن الإشعارات. جرب مرة أخرى.', 'warning');
         }
     }
 
@@ -723,9 +643,6 @@ class LectureScheduleApp {
         const [hours, minutes] = lecture.startTime.split(':').map(Number);
         const lectureDuration = this.formatDuration(lecture.duration);
 
-        console.log(`Scheduling notifications for lecture: ${lecture.subject} at ${lecture.startTime} on ${lecture.day}`);
-
-        // جدولة المحاضرات لليوم الحالي والأسبوع القادم
         for (let dayOffset = 0; dayOffset <= 7; dayOffset++) {
             const targetDate = new Date(now);
             targetDate.setDate(targetDate.getDate() + dayOffset);
@@ -734,120 +651,54 @@ class LectureScheduleApp {
             if (targetDayKey === lecture.day) {
                 const lectureTime = new Date(targetDate);
                 lectureTime.setHours(hours, minutes, 0, 0);
-                
+
                 const reminderTime = new Date(lectureTime.getTime() - 5 * 60 * 1000);
 
-                // جدولة إشعار التذكير (قبل 5 دقائق)
-                if (reminderTime > now) {
-                    const delay = reminderTime.getTime() - now.getTime();
-                    
-                    // تجنب الجدولة للمستقبل البعيد (أكثر من أسبوع)
-                    if (delay <= 7 * 24 * 60 * 60 * 1000) {
-                        const reminderMessage = `محاضرة ${lecture.subject} ستبدأ بعد 5 دقائق مع ${lecture.professor} في القاعة ${lecture.room} - مدة المحاضرة: ${lectureDuration}`;
-                        
-                        console.log(`Reminder scheduled for ${reminderTime.toLocaleString('ar-SA')} (in ${Math.round(delay/1000)} seconds)`);
-
-                        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-                            this.serviceWorkerRegistration.active.postMessage({
-                                type: 'SCHEDULE_PRECISE_NOTIFICATION',
-                                notification: {
-                                    title: 'تذكير: محاضرة قريبة ⏰',
-                                    body: reminderMessage,
-                                    scheduledTime: reminderTime.getTime(),
-                                    lectureId: `${lecture.id}-${dayOffset}`,
-                                    notificationType: 'reminder',
-                                    icon: './icon-192.png',
-                                    badge: './icon-192.png',
-                                    requireInteraction: true,
-                                    vibrate: [500, 200, 500, 200, 500],
-                                    silent: false,
-                                    tag: `reminder-${lecture.id}-${dayOffset}`,
-                                    data: {
-                                        lectureId: lecture.id,
-                                        type: 'reminder',
-                                        subject: lecture.subject,
-                                        professor: lecture.professor,
-                                        room: lecture.room,
-                                        startTime: lecture.startTime
-                                    }
-                                }
-                            });
-                        } else {
-                            // جدولة مباشرة كخطة احتياطية
-                            const timeoutId = setTimeout(() => {
-                                this.sendNotification(
-                                    'تذكير: محاضرة قريبة ⏰',
-                                    reminderMessage,
-                                    {
-                                        type: 'lecture',
-                                        tag: `reminder-${lecture.id}-${dayOffset}`,
-                                        vibrate: [500, 200, 500, 200, 500],
-                                        requireInteraction: true,
-                                        data: { lectureId: lecture.id, type: 'reminder' }
-                                    }
-                                );
-                            }, delay);
-                            this.notificationTimeouts.set(`reminder_${lecture.id}_${dayOffset}`, timeoutId);
+                // إرسال البيانات إلى Service Worker للجدولة الدقيقة
+                if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
+                    this.serviceWorkerRegistration.active.postMessage({
+                        type: 'SCHEDULE_PRECISE_NOTIFICATION',
+                        notification: {
+                            title: 'تذكير: محاضرة قريبة ⏰',
+                            body: `محاضرة ${lecture.subject} ستبدأ بعد 5 دقائق`,
+                            scheduledTime: reminderTime.getTime(),
+                            tag: `reminder-${lecture.id}-${dayOffset}`,
+                            data: {
+                                lectureId: lecture.id,
+                                type: 'reminder'
+                            }
                         }
-                    }
+                    });
+
+                    this.serviceWorkerRegistration.active.postMessage({
+                        type: 'SCHEDULE_PRECISE_NOTIFICATION',
+                        notification: {
+                            title: 'بداية المحاضرة 🎓',
+                            body: `محاضرة ${lecture.subject} بدأت الآن`,
+                            scheduledTime: lectureTime.getTime(),
+                            tag: `start-${lecture.id}-${dayOffset}`,
+                            data: {
+                                lectureId: lecture.id,
+                                type: 'start'
+                            }
+                        }
+                    });
                 }
 
-                // جدولة إشعار بداية المحاضرة
-                if (lectureTime > now) {
-                    const delay = lectureTime.getTime() - now.getTime();
-                    
-                    if (delay <= 7 * 24 * 60 * 60 * 1000) {
-                        const startMessage = `محاضرة ${lecture.subject} بدأت الآن مع ${lecture.professor} في القاعة ${lecture.room} - مدة المحاضرة: ${lectureDuration}`;
-                        
-                        console.log(`Start notification scheduled for ${lectureTime.toLocaleString('ar-SA')} (in ${Math.round(delay/1000)} seconds)`);
-
-                        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-                            this.serviceWorkerRegistration.active.postMessage({
-                                type: 'SCHEDULE_PRECISE_NOTIFICATION',
-                                notification: {
-                                    title: 'بداية المحاضرة 🎓',
-                                    body: startMessage,
-                                    scheduledTime: lectureTime.getTime(),
-                                    lectureId: `${lecture.id}-start-${dayOffset}`,
-                                    notificationType: 'start',
-                                    icon: './icon-192.png',
-                                    badge: './icon-192.png',
-                                    requireInteraction: true,
-                                    vibrate: [800, 200, 800, 200, 800],
-                                    silent: false,
-                                    tag: `start-${lecture.id}-${dayOffset}`,
-                                    data: {
-                                        lectureId: lecture.id,
-                                        type: 'start',
-                                        subject: lecture.subject,
-                                        professor: lecture.professor,
-                                        room: lecture.room,
-                                        startTime: lecture.startTime
-                                    }
-                                }
-                            });
-                        } else {
-                            const timeoutId = setTimeout(() => {
-                                this.sendNotification(
-                                    'بداية المحاضرة 🎓',
-                                    startMessage,
-                                    {
-                                        type: 'lecture',
-                                        tag: `start-${lecture.id}-${dayOffset}`,
-                                        vibrate: [800, 200, 800, 200, 800],
-                                        requireInteraction: true,
-                                        data: { lectureId: lecture.id, type: 'start' }
-                                    }
-                                );
-                            }, delay);
-                            this.notificationTimeouts.set(`start_${lecture.id}_${dayOffset}`, timeoutId);
-                        }
-                    }
-                }
-
-                // التوقف بعد العثور على أول تكرار للمحاضرة
                 if (dayOffset > 0) break;
             }
+        }
+    }
+    async sendLectureDataToServiceWorker() {
+        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
+            this.serviceWorkerRegistration.active.postMessage({
+                type: 'UPDATE_LECTURE_SCHEDULE',
+                lectures: this.lectures,
+                vapidPublicKey: this.vapidPublicKey,
+                backendUrl: this.backendUrl,
+                userId: this.userId,
+                timestamp: Date.now()
+            });
         }
     }
 
