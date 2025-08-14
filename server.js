@@ -39,18 +39,10 @@ app.use(express.static('.', {
 }));
 
 // مفاتيح VAPID الحقيقية - يمكنك توليدها بتشغيل: npx web-push generate-vapid-keys
-// إلى هذا (قراءة من Environment Variables - آمن):
 const vapidKeys = {
-  publicKey: process.env.VAPID_PUBLIC_KEY,
-  privateKey: process.env.VAPID_PRIVATE_KEY
+  publicKey: "BIjzsU9yiNL5ZTiw12QI2NYuPbLcdq4WdoLvTRBsd5dLiIhpGhMpi56jQEd830v-mPsqqwFWMPziZcbp4S-wc18",
+  privateKey: "EHAbGuF05fzIBSyfX1o2c-Ffx2qLsRX703NSVKg-i6E"
 };
-
-// تأكد أيضًا من تحديث إعدادات VAPID:
-webpush.setVapidDetails(
-  process.env.EMAIL_FOR_VAPID || 'mailto:university@schedule.app',
-  vapidKeys.publicKey,
-  vapidKeys.privateKey
-);
 
 // إعداد web-push
 webpush.setVapidDetails(
