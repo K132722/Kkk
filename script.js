@@ -5,17 +5,14 @@ class LectureScheduleApp {
         this.notificationPermission = 'default';
         this.notificationTimeouts = new Map();
         this.serviceWorkerRegistration = null;
-        this.userId = this.generateUserId();
-        this.backendUrl = 'https://kkk-1.onrender.com'; // تم التحديث إلى الرابط الجديد
-        this.vapidPublicKey = 'BIjzsU9yiNL5ZTiw12QI2NYuPbLcdq4WdoLvTRBsd5dLiIhpGhMpi56jQEd830v-mPsqqwFWMPziZcbp4S-wc18'; // المفتاح العام الجديد
 
         this.init();
     }
+
     async init() {
         this.setupEventListeners();
         this.renderSchedule();
         await this.registerServiceWorker();
-        await this.initBackendConnection();
         this.checkNotificationPermission();
         this.scheduleAllNotifications();
         this.updateCurrentInfo();
@@ -29,11 +26,6 @@ class LectureScheduleApp {
         setInterval(() => {
             this.scheduleAllNotifications();
         }, 60000);
-
-        // مزامنة البيانات مع الخادم كل 5 دقائق
-        setInterval(() => {
-            this.syncWithBackend();
-        }, 300000);
     }
 
     async registerServiceWorker() {
@@ -55,19 +47,6 @@ class LectureScheduleApp {
                     });
                 }
 
-                // انتظار Service Worker النشط
-                if (!this.serviceWorkerRegistration.active) {
-                    await new Promise((resolve) => {
-                        if (this.serviceWorkerRegistration.waiting) {
-                            this.serviceWorkerRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
-                        }
-                        this.serviceWorkerRegistration.addEventListener('controllerchange', resolve);
-                    });
-                }
-
-                // حفظ البيانات في IndexedDB
-                await this.saveToIndexedDB();
-
                 // طلب إذن المزامنة في الخلفية
                 if ('periodicSync' in window && this.serviceWorkerRegistration.sync) {
                     try {
@@ -78,30 +57,16 @@ class LectureScheduleApp {
                     }
                 }
 
-                // تسجيل المزامنة الدورية إذا كانت مدعومة
-                if ('periodicSync' in window && this.serviceWorkerRegistration.periodicSync) {
-                    try {
-                        await this.serviceWorkerRegistration.periodicSync.register('lecture-check', {
-                            minInterval: 5 * 60 * 1000 // كل 5 دقائق
-                        });
-                        console.log('Periodic sync registered');
-                    } catch (error) {
-                        console.log('Periodic sync not supported:', error);
-                    }
-                }
-
                 // إضافة مستمع لتحديثات Service Worker
                 this.serviceWorkerRegistration.addEventListener('updatefound', () => {
                     const newWorker = this.serviceWorkerRegistration.installing;
                     newWorker.addEventListener('statechange', () => {
                         if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // إظهار إشعار بوجود تحديث
                             this.showAppNotification('يتوفر تحديث جديد. سيتم التحديث عند إعادة تحميل الصفحة.', 'info');
                         }
                     });
                 });
-
-                // إرسال البيانات إلى Service Worker فوراً
-                this.sendLectureDataToServiceWorker();
 
             } catch (error) {
                 console.error('Service Worker registration failed:', error);
@@ -154,162 +119,110 @@ class LectureScheduleApp {
         });
     }
 
-    // إنشاء معرف مستخدم فريد
-    generateUserId() {
-        let userId = localStorage.getItem('userId');
-        if (!userId) {
-            userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('userId', userId);
-        }
-        return userId;
-    }
-
-    // تهيئة الاتصال بالخادم الخلفي
-    async initBackendConnection() {
-        try {
-            // الحصول على المفتاح العام VAPID
-            const response = await fetch(`${this.backendUrl}/api/vapid-public-key`);
-            if (response.ok) {
-                const data = await response.json();
-                this.vapidPublicKey = data.publicKey;
-                console.log('تم الحصول على المفتاح العام من الخادم');
-            } else {
-                console.warn('تعذر الحصول على المفتاح العام، استخدام النظام المحلي');
-            }
-        } catch (error) {
-            console.warn('فشل الاتصال بالخادم، استخدام النظام المحلي:', error);
-        }
-    }
-
-    // تسجيل الاشتراك مع الخادم
-    async registerWithBackend(subscription) {
-        try {
-            const response = await fetch(`${this.backendUrl}/api/subscribe`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    userId: this.userId,
-                    subscription: subscription,
-                    lectureSchedule: this.lectures
-                })
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                console.log('تم تسجيل الاشتراك مع الخادم:', data.message);
-                this.showAppNotification('تم تفعيل الإشعارات الخلفية! ستصلك التذكيرات حتى عند إغلاق التطبيق', 'success');
-                return true;
-            } else {
-                console.warn('فشل تسجيل الاشتراك مع الخادم');
-                return false;
-            }
-        } catch (error) {
-            console.warn('خطأ في تسجيل الاشتراك مع الخادم:', error);
-            return false;
-        }
-    }
-
-    // مزامنة البيانات مع الخادم
-    async syncWithBackend() {
-        try {
-            const response = await fetch(`${this.backendUrl}/api/update-schedule`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    userId: this.userId,
-                    lectureSchedule: this.lectures
-                })
-            });
-
-            if (response.ok) {
-                console.log('تم تحديث جدول المحاضرات على الخادم');
-            }
-        } catch (error) {
-            console.warn('فشل في مزامنة البيانات مع الخادم:', error);
-        }
-    }
-
-    // إرسال إشعار تجريبي من الخادم
-    async sendBackendTestNotification() {
-        try {
-            const response = await fetch(`${this.backendUrl}/api/test-notification`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    userId: this.userId
-                })
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                console.log('تم إرسال الإشعار التجريبي من الخادم:', data.message);
-                return true;
-            } else {
-                console.warn('فشل في إرسال الإشعار التجريبي من الخادم');
-                return false;
-            }
-        } catch (error) {
-            console.warn('خطأ في إرسال الإشعار التجريبي من الخادم:', error);
-            return false;
-        }
-    }
-
     async requestNotificationPermission() {
         if (!('Notification' in window)) {
             this.showAppNotification('الإشعارات غير مدعومة في هذا المتصفح', 'warning');
             return;
         }
 
+        // طلب الإذن مع معالجة خاصة لـ iOS
         let permission = await Notification.requestPermission();
-
+        
+        // للأجهزة التي تتطلب إجراءات إضافية (مثل iOS)
         if (permission === 'default') {
+            // إظهار تعليمات إضافية للمستخدم
             this.showAppNotification('اضغط "السماح" عندما يظهر طلب الإذن', 'info');
+            
+            // محاولة ثانية بعد تفاعل المستخدم
             await new Promise(resolve => setTimeout(resolve, 1000));
             permission = await Notification.requestPermission();
         }
-
+        
         this.notificationPermission = permission;
         this.updateNotificationStatus();
 
         if (permission === 'granted') {
             this.showAppNotification('تم تفعيل الإشعارات بنجاح! ✅', 'success');
+            
+            // حفظ الإعدادات في localStorage
             localStorage.setItem('notificationsEnabled', 'true');
             localStorage.setItem('lectureSchedule', JSON.stringify(this.lectures));
+            
+            // جدولة الإشعارات فوراً
             this.scheduleAllNotifications();
 
+            // طلب أذونات إضافية للعمل في الخلفية
             try {
+                // تسجيل Service Worker للإشعارات الخلفية
                 if (this.serviceWorkerRegistration) {
-                    // تسجيل الاشتراك مع Push Service
-                    const subscription = await this.serviceWorkerRegistration.pushManager.subscribe({
-                        userVisibleOnly: true,
-                        applicationServerKey: this.urlBase64ToUint8Array(this.vapidPublicKey)
+                    // إرسال جدول المحاضرات إلى Service Worker
+                    this.serviceWorkerRegistration.active.postMessage({
+                        type: 'INIT_LECTURE_SCHEDULE',
+                        lectures: this.lectures,
+                        notificationsEnabled: true
                     });
 
-                    // تسجيل مع الخادم الخلفي
-                    await this.registerWithBackend(subscription);
+                    // طلب إذن المزامنة الدورية للمتصفحات المدعومة
+                    if ('periodicSync' in window && this.serviceWorkerRegistration.periodicSync) {
+                        try {
+                            await this.serviceWorkerRegistration.periodicSync.register('lecture-check', {
+                                minInterval: 5 * 60 * 1000 // كل 5 دقائق
+                            });
+                            console.log('Periodic sync registered for lecture notifications');
+                        } catch (error) {
+                            console.log('Periodic sync not supported:', error);
+                        }
+                    }
 
-                    // إرسال تأكيد للمستخدم
-                    setTimeout(() => {
-                        this.sendNotification(
-                            'نظام التذكير جاهز! 🎓',
-                            'سيتم إرسال التذكيرات تلقائياً حتى عند إغلاق التطبيق',
-                            {
-                                type: 'setup',
-                                tag: 'setup-confirmation',
-                                requireInteraction: true
-                            }
-                        );
-                    }, 2000);
+                    // طلب إذن البقاء في الخلفية للأجهزة المدعومة
+                    if ('wakeLock' in navigator) {
+                        try {
+                            const wakeLock = await navigator.wakeLock.request('screen');
+                            console.log('Wake lock acquired');
+                            
+                            // إطلاق الـ wake lock بعد 30 ثانية لتوفير البطارية
+                            setTimeout(() => {
+                                wakeLock.release();
+                                console.log('Wake lock released');
+                            }, 30000);
+                        } catch (error) {
+                            console.log('Wake lock not supported:', error);
+                        }
+                    }
                 }
+
+                // إرسال إشعار تأكيد يوضح للمستخدم أن النظام يعمل
+                setTimeout(() => {
+                    this.sendNotification(
+                        'نظام التذكير جاهز! 🎓',
+                        'سيتم إرسال التذكيرات تلقائياً:\n• قبل 5 دقائق من بداية المحاضرة\n• عند بداية المحاضرة\n\nالنظام يعمل حتى عند إغلاق التطبيق أو الجهاز.',
+                        {
+                            type: 'setup',
+                            tag: 'setup-confirmation',
+                            requireInteraction: true,
+                            vibrate: [300, 100, 300, 100, 300],
+                            icon: './icon-192.png',
+                            badge: './icon-192.png'
+                        }
+                    );
+                }, 2000);
+
+                // إرسال تعليمات إضافية للـ iPhone
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                if (isIOS) {
+                    setTimeout(() => {
+                        this.showAppNotification('لضمان وصول الإشعارات على iPhone:\n1. أضف التطبيق للشاشة الرئيسية\n2. فعل الإشعارات في إعدادات iPhone > الإشعارات', 'info');
+                    }, 5000);
+                }
+
             } catch (error) {
-                console.error('Error in push registration:', error);
+                console.error('Failed to register background features:', error);
+                this.showAppNotification('تم تفعيل الإشعارات، لكن بعض الميزات المتقدمة قد لا تعمل', 'warning');
             }
+        } else if (permission === 'denied') {
+            this.showAppNotification('تم رفض إذن الإشعارات. لتفعيلها:\n• Chrome: إعدادات > الخصوصية والأمان > إعدادات الموقع > الإشعارات\n• Safari: تفضيلات > مواقع الويب > الإشعارات', 'warning');
+        } else {
+            this.showAppNotification('لم يتم منح إذن الإشعارات. جرب مرة أخرى.', 'warning');
         }
     }
 
@@ -380,62 +293,6 @@ class LectureScheduleApp {
 
     saveLectures() {
         localStorage.setItem('lectures', JSON.stringify(this.lectures));
-        this.saveToIndexedDB();
-        this.sendLectureDataToServiceWorker();
-        
-        // مزامنة مع الخادم الخلفي
-        this.syncWithBackend();
-    }
-
-    // حفظ البيانات في IndexedDB للوصول من Service Worker
-    async saveToIndexedDB() {
-        try {
-            const request = indexedDB.open('LectureScheduleDB', 1);
-            
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains('lectures')) {
-                    const store = db.createObjectStore('lectures', { keyPath: 'id' });
-                    store.createIndex('day', 'day', { unique: false });
-                    store.createIndex('startTime', 'startTime', { unique: false });
-                }
-            };
-            
-            request.onsuccess = (event) => {
-                const db = event.target.result;
-                const transaction = db.transaction(['lectures'], 'readwrite');
-                const store = transaction.objectStore('lectures');
-                
-                // مسح البيانات القديمة
-                store.clear();
-                
-                // حفظ البيانات الجديدة
-                this.lectures.forEach(lecture => {
-                    store.add(lecture);
-                });
-                
-                console.log('Data saved to IndexedDB');
-            };
-            
-            request.onerror = (event) => {
-                console.error('Failed to save to IndexedDB:', event.target.error);
-            };
-        } catch (error) {
-            console.error('IndexedDB not supported:', error);
-        }
-    }
-
-    // إرسال البيانات إلى Service Worker
-    sendLectureDataToServiceWorker() {
-        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-            this.serviceWorkerRegistration.active.postMessage({
-                type: 'UPDATE_LECTURE_SCHEDULE',
-                lectures: this.lectures,
-                timestamp: Date.now(),
-                notificationsEnabled: this.notificationPermission === 'granted'
-            });
-            console.log('Lecture data sent to Service Worker');
-        }
     }
 
     renderSchedule() {
@@ -446,7 +303,9 @@ class LectureScheduleApp {
             { key: 'monday', name: 'الاثنين' },
             { key: 'tuesday', name: 'الثلاثاء' },
             { key: 'wednesday', name: 'الأربعاء' },
-            { key: 'thursday', name: 'الخميس' }
+            { key: 'thursday', name: 'الخميس' },
+            { key: 'friday', name: 'الجمعه' }
+            
         ];
 
         grid.innerHTML = '';
@@ -607,7 +466,15 @@ class LectureScheduleApp {
         });
 
         // إرسال جدول كامل إلى Service Worker للعمل في الخلفية
-        this.sendLectureDataToServiceWorker();
+        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
+            this.serviceWorkerRegistration.active.postMessage({
+                type: 'UPDATE_LECTURE_SCHEDULE',
+                lectures: this.lectures,
+                currentDay: currentDay,
+                currentTime: now.getTime(),
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+            });
+        }
 
         // حفظ آخر وقت تم فيه جدولة الإشعارات
         localStorage.setItem('lastScheduleUpdate', now.getTime().toString());
@@ -622,7 +489,8 @@ class LectureScheduleApp {
             1: 'monday',
             2: 'tuesday',
             3: 'wednesday',
-            4: 'thursday'
+            4: 'thursday',
+            7: 'friday'
         };
         return dayMap[new Date().getDay()];
     }
@@ -634,7 +502,8 @@ class LectureScheduleApp {
             1: 'monday',
             2: 'tuesday',
             3: 'wednesday',
-            4: 'thursday'
+            4: 'thursday',
+            7: 'friday'
         };
         return dayMap[date.getDay()];
     }
@@ -643,6 +512,9 @@ class LectureScheduleApp {
         const [hours, minutes] = lecture.startTime.split(':').map(Number);
         const lectureDuration = this.formatDuration(lecture.duration);
 
+        console.log(`Scheduling notifications for lecture: ${lecture.subject} at ${lecture.startTime} on ${lecture.day}`);
+
+        // جدولة المحاضرات لليوم الحالي والأسبوع القادم
         for (let dayOffset = 0; dayOffset <= 7; dayOffset++) {
             const targetDate = new Date(now);
             targetDate.setDate(targetDate.getDate() + dayOffset);
@@ -651,54 +523,120 @@ class LectureScheduleApp {
             if (targetDayKey === lecture.day) {
                 const lectureTime = new Date(targetDate);
                 lectureTime.setHours(hours, minutes, 0, 0);
-
+                
                 const reminderTime = new Date(lectureTime.getTime() - 5 * 60 * 1000);
 
-                // إرسال البيانات إلى Service Worker للجدولة الدقيقة
-                if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-                    this.serviceWorkerRegistration.active.postMessage({
-                        type: 'SCHEDULE_PRECISE_NOTIFICATION',
-                        notification: {
-                            title: 'تذكير: محاضرة قريبة ⏰',
-                            body: `محاضرة ${lecture.subject} ستبدأ بعد 5 دقائق`,
-                            scheduledTime: reminderTime.getTime(),
-                            tag: `reminder-${lecture.id}-${dayOffset}`,
-                            data: {
-                                lectureId: lecture.id,
-                                type: 'reminder'
-                            }
-                        }
-                    });
+                // جدولة إشعار التذكير (قبل 5 دقائق)
+                if (reminderTime > now) {
+                    const delay = reminderTime.getTime() - now.getTime();
+                    
+                    // تجنب الجدولة للمستقبل البعيد (أكثر من أسبوع)
+                    if (delay <= 7 * 24 * 60 * 60 * 1000) {
+                        const reminderMessage = `محاضرة ${lecture.subject} ستبدأ بعد 5 دقائق مع ${lecture.professor} في القاعة ${lecture.room} - مدة المحاضرة: ${lectureDuration}`;
+                        
+                        console.log(`Reminder scheduled for ${reminderTime.toLocaleString('ar-SA')} (in ${Math.round(delay/1000)} seconds)`);
 
-                    this.serviceWorkerRegistration.active.postMessage({
-                        type: 'SCHEDULE_PRECISE_NOTIFICATION',
-                        notification: {
-                            title: 'بداية المحاضرة 🎓',
-                            body: `محاضرة ${lecture.subject} بدأت الآن`,
-                            scheduledTime: lectureTime.getTime(),
-                            tag: `start-${lecture.id}-${dayOffset}`,
-                            data: {
-                                lectureId: lecture.id,
-                                type: 'start'
-                            }
+                        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
+                            this.serviceWorkerRegistration.active.postMessage({
+                                type: 'SCHEDULE_PRECISE_NOTIFICATION',
+                                notification: {
+                                    title: 'تذكير: محاضرة قريبة ⏰',
+                                    body: reminderMessage,
+                                    scheduledTime: reminderTime.getTime(),
+                                    lectureId: `${lecture.id}-${dayOffset}`,
+                                    notificationType: 'reminder',
+                                    icon: './icon-192.png',
+                                    badge: './icon-192.png',
+                                    requireInteraction: true,
+                                    vibrate: [500, 200, 500, 200, 500],
+                                    silent: false,
+                                    tag: `reminder-${lecture.id}-${dayOffset}`,
+                                    data: {
+                                        lectureId: lecture.id,
+                                        type: 'reminder',
+                                        subject: lecture.subject,
+                                        professor: lecture.professor,
+                                        room: lecture.room,
+                                        startTime: lecture.startTime
+                                    }
+                                }
+                            });
+                        } else {
+                            // جدولة مباشرة كخطة احتياطية
+                            const timeoutId = setTimeout(() => {
+                                this.sendNotification(
+                                    'تذكير: محاضرة قريبة ⏰',
+                                    reminderMessage,
+                                    {
+                                        type: 'lecture',
+                                        tag: `reminder-${lecture.id}-${dayOffset}`,
+                                        vibrate: [500, 200, 500, 200, 500],
+                                        requireInteraction: true,
+                                        data: { lectureId: lecture.id, type: 'reminder' }
+                                    }
+                                );
+                            }, delay);
+                            this.notificationTimeouts.set(`reminder_${lecture.id}_${dayOffset}`, timeoutId);
                         }
-                    });
+                    }
                 }
 
+                // جدولة إشعار بداية المحاضرة
+                if (lectureTime > now) {
+                    const delay = lectureTime.getTime() - now.getTime();
+                    
+                    if (delay <= 7 * 24 * 60 * 60 * 1000) {
+                        const startMessage = `محاضرة ${lecture.subject} بدأت الآن مع ${lecture.professor} في القاعة ${lecture.room} - مدة المحاضرة: ${lectureDuration}`;
+                        
+                        console.log(`Start notification scheduled for ${lectureTime.toLocaleString('ar-SA')} (in ${Math.round(delay/1000)} seconds)`);
+
+                        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
+                            this.serviceWorkerRegistration.active.postMessage({
+                                type: 'SCHEDULE_PRECISE_NOTIFICATION',
+                                notification: {
+                                    title: 'بداية المحاضرة 🎓',
+                                    body: startMessage,
+                                    scheduledTime: lectureTime.getTime(),
+                                    lectureId: `${lecture.id}-start-${dayOffset}`,
+                                    notificationType: 'start',
+                                    icon: './icon-192.png',
+                                    badge: './icon-192.png',
+                                    requireInteraction: true,
+                                    vibrate: [800, 200, 800, 200, 800],
+                                    silent: false,
+                                    tag: `start-${lecture.id}-${dayOffset}`,
+                                    data: {
+                                        lectureId: lecture.id,
+                                        type: 'start',
+                                        subject: lecture.subject,
+                                        professor: lecture.professor,
+                                        room: lecture.room,
+                                        startTime: lecture.startTime
+                                    }
+                                }
+                            });
+                        } else {
+                            const timeoutId = setTimeout(() => {
+                                this.sendNotification(
+                                    'بداية المحاضرة 🎓',
+                                    startMessage,
+                                    {
+                                        type: 'lecture',
+                                        tag: `start-${lecture.id}-${dayOffset}`,
+                                        vibrate: [800, 200, 800, 200, 800],
+                                        requireInteraction: true,
+                                        data: { lectureId: lecture.id, type: 'start' }
+                                    }
+                                );
+                            }, delay);
+                            this.notificationTimeouts.set(`start_${lecture.id}_${dayOffset}`, timeoutId);
+                        }
+                    }
+                }
+
+                // التوقف بعد العثور على أول تكرار للمحاضرة
                 if (dayOffset > 0) break;
             }
-        }
-    }
-    async sendLectureDataToServiceWorker() {
-        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-            this.serviceWorkerRegistration.active.postMessage({
-                type: 'UPDATE_LECTURE_SCHEDULE',
-                lectures: this.lectures,
-                vapidPublicKey: this.vapidPublicKey,
-                backendUrl: this.backendUrl,
-                userId: this.userId,
-                timestamp: Date.now()
-            });
         }
     }
 
@@ -787,22 +725,13 @@ class LectureScheduleApp {
         }
     }
 
-    async testNotification() {
+    testNotification() {
         if (this.notificationPermission !== 'granted') {
             this.showAppNotification('يجب تفعيل الإشعارات أولاً', 'warning');
             return;
         }
 
-        this.showAppNotification('سيتم إرسال إشعارات تجريبية من النظام المحلي والخادم الخلفي...', 'info');
-
-        // إرسال إشعار تجريبي من الخادم الخلفي
-        const backendSent = await this.sendBackendTestNotification();
-        
-        if (backendSent) {
-            this.showAppNotification('تم إرسال إشعارات تجريبية من الخادم الخلفي!', 'success');
-        } else {
-            this.showAppNotification('سيتم إرسال إشعارات تجريبية من النظام المحلي فقط', 'info');
-        }
+        this.showAppNotification('سيتم إرسال إشعار تجريبي خلال 3 ثوانٍ...', 'info');
 
         // إرسال إشعار تجريبي مع نفس تنسيق إشعارات المحاضرات
         const testLecture = {
@@ -973,7 +902,8 @@ class LectureScheduleApp {
             'monday': 'الاثنين',
             'tuesday': 'الثلاثاء',
             'wednesday': 'الأربعاء',
-            'thursday': 'الخميس'
+            'thursday': 'الخميس',
+            'friday': 'الجمعه'
         };
         return dayNames[dayKey] || dayKey;
     }
@@ -1009,22 +939,6 @@ class LectureScheduleApp {
         } else {
             return `${remainingMinutes} دقيقة`;
         }
-    }
-
-    // تحويل VAPID key من base64 إلى Uint8Array
-    urlBase64ToUint8Array(base64String) {
-        const padding = '='.repeat((4 - base64String.length % 4) % 4);
-        const base64 = (base64String + padding)
-            .replace(/-/g, '+')
-            .replace(/_/g, '/');
-
-        const rawData = window.atob(base64);
-        const outputArray = new Uint8Array(rawData.length);
-
-        for (let i = 0; i < rawData.length; ++i) {
-            outputArray[i] = rawData.charCodeAt(i);
-        }
-        return outputArray;
     }
 
     showAppNotification(message, type = 'info') {
