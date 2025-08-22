@@ -2,6 +2,7 @@ class LectureScheduleApp {
     constructor() {
         this.lectures = this.loadLectures();
         this.editingLecture = null;
+        this.telegramBotToken = "8391105668:AAGh-L-TqGOgH0H8qhVOiTMFUYwFxaeeQo8"; // استبدل بتوكن البوت الخاص بك
         this.telegramChatId = localStorage.getItem('telegramChatId') || null;
         this.serviceWorkerRegistration = null;
 
@@ -13,6 +14,7 @@ class LectureScheduleApp {
         this.renderSchedule();
         await this.registerServiceWorker();
         this.updateCurrentInfo();
+        this.updateTelegramStatus();
 
         // تحديث الوقت كل ثانية
         setInterval(() => {
@@ -28,7 +30,7 @@ class LectureScheduleApp {
     async registerServiceWorker() {
         if ('serviceWorker' in navigator) {
             try {
-                this.serviceWorkerRegistration = await navigator.serviceWorker.register('./sw.js', {
+                this.serviceWorkerRegistration = await navigator.serviceWorker.register('./sw-telegram.js', {
                     scope: './'
                 });
                 console.log('Service Worker registered successfully');
@@ -44,10 +46,11 @@ class LectureScheduleApp {
                     });
                 }
 
-                // إرسال معرف Telegram إلى Service Worker
+                // إرسال إعدادات Telegram إلى Service Worker
                 if (this.telegramChatId) {
                     this.serviceWorkerRegistration.active.postMessage({
-                        type: 'SET_TELEGRAM_CHAT_ID',
+                        type: 'SET_TELEGRAM_CONFIG',
+                        botToken: this.telegramBotToken,
                         chatId: this.telegramChatId
                     });
                 }
@@ -128,17 +131,18 @@ class LectureScheduleApp {
     }
 
     promptForTelegramChatId() {
-        const chatId = prompt('أدخل معرف دردشة Telegram الخاص بك (يمكنك الحصول عليه من @userinfobot):');
+        const chatId = prompt(5750901822);
 
         if (chatId) {
             this.telegramChatId = chatId;
             localStorage.setItem('telegramChatId', chatId);
             this.updateTelegramStatus();
 
-            // إرسال معرف الدردشة إلى Service Worker
+            // إرسال إعدادات Telegram إلى Service Worker
             if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
                 this.serviceWorkerRegistration.active.postMessage({
-                    type: 'SET_TELEGRAM_CHAT_ID',
+                    type: 'SET_TELEGRAM_CONFIG',
+                    botToken: this.telegramBotToken,
                     chatId: chatId
                 });
             }
@@ -225,7 +229,6 @@ class LectureScheduleApp {
             { key: 'wednesday', name: 'الأربعاء' },
             { key: 'thursday', name: 'الخميس' },
             { key: 'friday', name: 'الجمعه' }
-
         ];
 
         grid.innerHTML = '';
@@ -421,15 +424,16 @@ class LectureScheduleApp {
         }
 
         try {
-            const response = await fetch('/send', {
+            // استخدام API Telegram مباشرة
+            const response = await fetch(`https://api.telegram.org/bot${this.telegramBotToken}/sendMessage`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    chatId: this.telegramChatId,
-                    message: message,
-                    type: type
+                    chat_id: this.telegramChatId,
+                    text: message,
+                    parse_mode: 'Markdown'
                 })
             });
 
@@ -438,7 +442,29 @@ class LectureScheduleApp {
             return result.ok;
         } catch (error) {
             console.error('Failed to send Telegram message:', error);
-            return false;
+
+            // محاولة بديلة باستخدام Google Apps Script إذا فشلت المحاولة الأولى
+            try {
+                const gasResponse = await fetch('https://script.google.com/macros/s/AKfycbx8ToVm54RyG3o1Eeojet_if9g05Cm99eWgpIAKh2Hv2xs_LrQomWO5FV0-QY1Rbsj5lQ/exec', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        botToken: this.telegramBotToken,
+                        chatId: this.telegramChatId,
+                        message: message,
+                        type: type
+                    })
+                });
+
+                const gasResult = await gasResponse.json();
+                console.log('Telegram message sent via GAS:', gasResult);
+                return gasResult.ok;
+            } catch (gasError) {
+                console.error('Failed to send Telegram message via GAS:', gasError);
+                return false;
+            }
         }
     }
 
@@ -486,15 +512,15 @@ class LectureScheduleApp {
 
         // تحديث الوقت الحالي (12 ساعة مع تمييز صباح/مساء)
         const hours = now.getHours();
-        const ampm = hours >= 12 ? 'pm' : 'am';
+        const ampm = hours >= 12 ? 'مساء' : 'صباحاً';
         const displayHours = hours % 12 || 12;
         const minutes = now.getMinutes().toString().padStart(2, '0');
         const seconds = now.getSeconds().toString().padStart(2, '0');
 
-        const timeString = `${displayHours}:${minutes}:${seconds}`;
+        const timeString = `${displayHours}:${minutes}:${seconds} ${ampm}`;
         const timeElement = document.getElementById('currentTime');
         timeElement.textContent = timeString;
-        timeElement.className = `current-time ${ampm}`;
+        timeElement.className = `current-time ${hours >= 12 ? 'pm' : 'am'}`;
 
         // تحديث التاريخ الميلادي فقط
         const gregorianDate = now.toLocaleDateString('ar-SA', {
@@ -652,7 +678,7 @@ window.addEventListener('beforeunload', () => {
 // تسجيل Service Worker عند تحميل الصفحة
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').then(registration => {
+        navigator.serviceWorker.register('sw-telegram.js').then(registration => {
             console.log('ServiceWorker registration successful');
         }, err => {
             console.log('ServiceWorker registration failed: ', err);
