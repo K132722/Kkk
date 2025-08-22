@@ -2,8 +2,7 @@ class LectureScheduleApp {
     constructor() {
         this.lectures = this.loadLectures();
         this.editingLecture = null;
-        this.notificationPermission = 'default';
-        this.notificationTimeouts = new Map();
+        this.telegramChatId = localStorage.getItem('telegramChatId') || null;
         this.serviceWorkerRegistration = null;
 
         this.init();
@@ -13,8 +12,6 @@ class LectureScheduleApp {
         this.setupEventListeners();
         this.renderSchedule();
         await this.registerServiceWorker();
-        this.checkNotificationPermission();
-        this.scheduleAllNotifications();
         this.updateCurrentInfo();
 
         // تحديث الوقت كل ثانية
@@ -47,14 +44,12 @@ class LectureScheduleApp {
                     });
                 }
 
-                // طلب إذن المزامنة في الخلفية
-                if ('periodicSync' in window && this.serviceWorkerRegistration.sync) {
-                    try {
-                        await this.serviceWorkerRegistration.sync.register('lecture-notifications');
-                        console.log('Background sync registered');
-                    } catch (error) {
-                        console.log('Background sync not supported:', error);
-                    }
+                // إرسال معرف Telegram إلى Service Worker
+                if (this.telegramChatId) {
+                    this.serviceWorkerRegistration.active.postMessage({
+                        type: 'SET_TELEGRAM_CHAT_ID',
+                        chatId: this.telegramChatId
+                    });
                 }
 
                 // إضافة مستمع لتحديثات Service Worker
@@ -81,7 +76,7 @@ class LectureScheduleApp {
     setupEventListeners() {
         // أزرار الرأس
         document.getElementById('notificationBtn').addEventListener('click', () => {
-            this.requestNotificationPermission();
+            this.setupTelegramNotifications();
         });
 
         document.getElementById('addLectureBtn').addEventListener('click', () => {
@@ -119,135 +114,60 @@ class LectureScheduleApp {
         });
     }
 
-    async requestNotificationPermission() {
-        if (!('Notification' in window)) {
-            this.showAppNotification('الإشعارات غير مدعومة في هذا المتصفح', 'warning');
+    async setupTelegramNotifications() {
+        if (this.telegramChatId) {
+            // إذا كان معرف الدردشة موجوداً، إظهار خيارات
+            const choice = confirm('إشعارات Telegram مفعلة. هل تريد تغيير معرف الدردشة أو إرسال رسالة تجريبية؟');
+            if (choice) {
+                this.promptForTelegramChatId();
+            }
             return;
         }
 
-        // طلب الإذن مع معالجة خاصة لـ iOS
-        let permission = await Notification.requestPermission();
-        
-        // للأجهزة التي تتطلب إجراءات إضافية (مثل iOS)
-        if (permission === 'default') {
-            // إظهار تعليمات إضافية للمستخدم
-            this.showAppNotification('اضغط "السماح" عندما يظهر طلب الإذن', 'info');
-            
-            // محاولة ثانية بعد تفاعل المستخدم
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            permission = await Notification.requestPermission();
-        }
-        
-        this.notificationPermission = permission;
-        this.updateNotificationStatus();
+        this.promptForTelegramChatId();
+    }
 
-        if (permission === 'granted') {
-            this.showAppNotification('تم تفعيل الإشعارات بنجاح! ✅', 'success');
-            
-            // حفظ الإعدادات في localStorage
-            localStorage.setItem('notificationsEnabled', 'true');
-            localStorage.setItem('lectureSchedule', JSON.stringify(this.lectures));
-            
+    promptForTelegramChatId() {
+        const chatId = prompt('أدخل معرف دردشة Telegram الخاص بك (يمكنك الحصول عليه من @userinfobot):');
+
+        if (chatId) {
+            this.telegramChatId = chatId;
+            localStorage.setItem('telegramChatId', chatId);
+            this.updateTelegramStatus();
+
+            // إرسال معرف الدردشة إلى Service Worker
+            if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
+                this.serviceWorkerRegistration.active.postMessage({
+                    type: 'SET_TELEGRAM_CHAT_ID',
+                    chatId: chatId
+                });
+            }
+
+            this.showAppNotification('تم حفظ معرف Telegram بنجاح! سيتم إرسال الإشعارات إلى حسابك.', 'success');
+
+            // إرسال رسالة تأكيد
+            this.sendTelegramMessage('✅ تم تفعيل إشعارات جدول المحاضرات بنجاح! سيصلك تذكير بالمحاضرات قبل 5 دقائق من بدايتها وإشعار عند بداية كل محاضرة.', 'setup');
+
             // جدولة الإشعارات فوراً
             this.scheduleAllNotifications();
-
-            // طلب أذونات إضافية للعمل في الخلفية
-            try {
-                // تسجيل Service Worker للإشعارات الخلفية
-                if (this.serviceWorkerRegistration) {
-                    // إرسال جدول المحاضرات إلى Service Worker
-                    this.serviceWorkerRegistration.active.postMessage({
-                        type: 'INIT_LECTURE_SCHEDULE',
-                        lectures: this.lectures,
-                        notificationsEnabled: true
-                    });
-
-                    // طلب إذن المزامنة الدورية للمتصفحات المدعومة
-                    if ('periodicSync' in window && this.serviceWorkerRegistration.periodicSync) {
-                        try {
-                            await this.serviceWorkerRegistration.periodicSync.register('lecture-check', {
-                                minInterval: 5 * 60 * 1000 // كل 5 دقائق
-                            });
-                            console.log('Periodic sync registered for lecture notifications');
-                        } catch (error) {
-                            console.log('Periodic sync not supported:', error);
-                        }
-                    }
-
-                    // طلب إذن البقاء في الخلفية للأجهزة المدعومة
-                    if ('wakeLock' in navigator) {
-                        try {
-                            const wakeLock = await navigator.wakeLock.request('screen');
-                            console.log('Wake lock acquired');
-                            
-                            // إطلاق الـ wake lock بعد 30 ثانية لتوفير البطارية
-                            setTimeout(() => {
-                                wakeLock.release();
-                                console.log('Wake lock released');
-                            }, 30000);
-                        } catch (error) {
-                            console.log('Wake lock not supported:', error);
-                        }
-                    }
-                }
-
-                // إرسال إشعار تأكيد يوضح للمستخدم أن النظام يعمل
-                setTimeout(() => {
-                    this.sendNotification(
-                        'نظام التذكير جاهز! 🎓',
-                        'سيتم إرسال التذكيرات تلقائياً:\n• قبل 5 دقائق من بداية المحاضرة\n• عند بداية المحاضرة\n\nالنظام يعمل حتى عند إغلاق التطبيق أو الجهاز.',
-                        {
-                            type: 'setup',
-                            tag: 'setup-confirmation',
-                            requireInteraction: true,
-                            vibrate: [300, 100, 300, 100, 300],
-                            icon: './icon-192.png',
-                            badge: './icon-192.png'
-                        }
-                    );
-                }, 2000);
-
-                // إرسال تعليمات إضافية للـ iPhone
-                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-                if (isIOS) {
-                    setTimeout(() => {
-                        this.showAppNotification('لضمان وصول الإشعارات على iPhone:\n1. أضف التطبيق للشاشة الرئيسية\n2. فعل الإشعارات في إعدادات iPhone > الإشعارات', 'info');
-                    }, 5000);
-                }
-
-            } catch (error) {
-                console.error('Failed to register background features:', error);
-                this.showAppNotification('تم تفعيل الإشعارات، لكن بعض الميزات المتقدمة قد لا تعمل', 'warning');
-            }
-        } else if (permission === 'denied') {
-            this.showAppNotification('تم رفض إذن الإشعارات. لتفعيلها:\n• Chrome: إعدادات > الخصوصية والأمان > إعدادات الموقع > الإشعارات\n• Safari: تفضيلات > مواقع الويب > الإشعارات', 'warning');
-        } else {
-            this.showAppNotification('لم يتم منح إذن الإشعارات. جرب مرة أخرى.', 'warning');
         }
     }
 
-    checkNotificationPermission() {
-        if ('Notification' in window) {
-            this.notificationPermission = Notification.permission;
-        }
-        this.updateNotificationStatus();
-    }
-
-    updateNotificationStatus() {
+    updateTelegramStatus() {
         const statusEl = document.getElementById('notificationStatus');
         const btnEl = document.getElementById('notificationBtn');
         const testBtnEl = document.getElementById('testNotificationBtn');
 
-        if (this.notificationPermission === 'granted') {
-            statusEl.textContent = 'الإشعارات مفعلة ✅';
+        if (this.telegramChatId) {
+            statusEl.textContent = 'إشعارات Telegram مفعلة ✅';
             statusEl.className = 'notification-status enabled';
-            btnEl.textContent = 'الإشعارات مفعلة';
-            btnEl.disabled = true;
+            btnEl.textContent = 'إشعارات Telegram مفعلة';
+            btnEl.disabled = false;
             testBtnEl.style.display = 'inline-block';
         } else {
-            statusEl.textContent = 'الإشعارات غير مفعلة - انقر لتفعيلها';
+            statusEl.textContent = 'إشعارات Telegram غير مفعلة - انقر لتفعيلها';
             statusEl.className = 'notification-status disabled';
-            btnEl.textContent = 'تفعيل الإشعارات';
+            btnEl.textContent = 'تفعيل إشعارات Telegram';
             btnEl.disabled = false;
             testBtnEl.style.display = 'none';
         }
@@ -305,7 +225,7 @@ class LectureScheduleApp {
             { key: 'wednesday', name: 'الأربعاء' },
             { key: 'thursday', name: 'الخميس' },
             { key: 'friday', name: 'الجمعه' }
-            
+
         ];
 
         grid.innerHTML = '';
@@ -446,40 +366,26 @@ class LectureScheduleApp {
     }
 
     scheduleAllNotifications() {
-        // إلغاء جميع الإشعارات المجدولة
-        this.notificationTimeouts.forEach(timeout => clearTimeout(timeout));
-        this.notificationTimeouts.clear();
-
-        if (this.notificationPermission !== 'granted') {
-            console.log('Notification permission not granted, cannot schedule notifications');
+        if (!this.telegramChatId) {
+            console.log('Telegram chat ID not set, cannot schedule notifications');
             return;
         }
-
-        const now = new Date();
-        const currentDay = this.getCurrentDayKey();
-
-        console.log('Scheduling notifications for current day:', currentDay, 'at time:', now.toLocaleString('ar-SA'));
-
-        // جدولة المحاضرات لليوم الحالي والأسبوع القادم
-        this.lectures.forEach(lecture => {
-            this.scheduleLectureNotifications(lecture, now, currentDay);
-        });
 
         // إرسال جدول كامل إلى Service Worker للعمل في الخلفية
         if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
             this.serviceWorkerRegistration.active.postMessage({
                 type: 'UPDATE_LECTURE_SCHEDULE',
                 lectures: this.lectures,
-                currentDay: currentDay,
-                currentTime: now.getTime(),
+                currentDay: this.getCurrentDayKey(),
+                currentTime: new Date().getTime(),
                 timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
             });
         }
 
         // حفظ آخر وقت تم فيه جدولة الإشعارات
-        localStorage.setItem('lastScheduleUpdate', now.getTime().toString());
-        
-        console.log(`Scheduled notifications for ${this.lectures.length} lectures`);
+        localStorage.setItem('lastScheduleUpdate', new Date().getTime().toString());
+
+        console.log(`Scheduled Telegram notifications for ${this.lectures.length} lectures`);
     }
 
     getCurrentDayKey() {
@@ -508,232 +414,43 @@ class LectureScheduleApp {
         return dayMap[date.getDay()];
     }
 
-    scheduleLectureNotifications(lecture, now, currentDay) {
-        const [hours, minutes] = lecture.startTime.split(':').map(Number);
-        const lectureDuration = this.formatDuration(lecture.duration);
-
-        console.log(`Scheduling notifications for lecture: ${lecture.subject} at ${lecture.startTime} on ${lecture.day}`);
-
-        // جدولة المحاضرات لليوم الحالي والأسبوع القادم
-        for (let dayOffset = 0; dayOffset <= 7; dayOffset++) {
-            const targetDate = new Date(now);
-            targetDate.setDate(targetDate.getDate() + dayOffset);
-            const targetDayKey = this.getCurrentDayKeyForDate(targetDate);
-
-            if (targetDayKey === lecture.day) {
-                const lectureTime = new Date(targetDate);
-                lectureTime.setHours(hours, minutes, 0, 0);
-                
-                const reminderTime = new Date(lectureTime.getTime() - 5 * 60 * 1000);
-
-                // جدولة إشعار التذكير (قبل 5 دقائق)
-                if (reminderTime > now) {
-                    const delay = reminderTime.getTime() - now.getTime();
-                    
-                    // تجنب الجدولة للمستقبل البعيد (أكثر من أسبوع)
-                    if (delay <= 7 * 24 * 60 * 60 * 1000) {
-                        const reminderMessage = `محاضرة ${lecture.subject} ستبدأ بعد 5 دقائق مع ${lecture.professor} في القاعة ${lecture.room} - مدة المحاضرة: ${lectureDuration}`;
-                        
-                        console.log(`Reminder scheduled for ${reminderTime.toLocaleString('ar-SA')} (in ${Math.round(delay/1000)} seconds)`);
-
-                        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-                            this.serviceWorkerRegistration.active.postMessage({
-                                type: 'SCHEDULE_PRECISE_NOTIFICATION',
-                                notification: {
-                                    title: 'تذكير: محاضرة قريبة ⏰',
-                                    body: reminderMessage,
-                                    scheduledTime: reminderTime.getTime(),
-                                    lectureId: `${lecture.id}-${dayOffset}`,
-                                    notificationType: 'reminder',
-                                    icon: './icon-192.png',
-                                    badge: './icon-192.png',
-                                    requireInteraction: true,
-                                    vibrate: [500, 200, 500, 200, 500],
-                                    silent: false,
-                                    tag: `reminder-${lecture.id}-${dayOffset}`,
-                                    data: {
-                                        lectureId: lecture.id,
-                                        type: 'reminder',
-                                        subject: lecture.subject,
-                                        professor: lecture.professor,
-                                        room: lecture.room,
-                                        startTime: lecture.startTime
-                                    }
-                                }
-                            });
-                        } else {
-                            // جدولة مباشرة كخطة احتياطية
-                            const timeoutId = setTimeout(() => {
-                                this.sendNotification(
-                                    'تذكير: محاضرة قريبة ⏰',
-                                    reminderMessage,
-                                    {
-                                        type: 'lecture',
-                                        tag: `reminder-${lecture.id}-${dayOffset}`,
-                                        vibrate: [500, 200, 500, 200, 500],
-                                        requireInteraction: true,
-                                        data: { lectureId: lecture.id, type: 'reminder' }
-                                    }
-                                );
-                            }, delay);
-                            this.notificationTimeouts.set(`reminder_${lecture.id}_${dayOffset}`, timeoutId);
-                        }
-                    }
-                }
-
-                // جدولة إشعار بداية المحاضرة
-                if (lectureTime > now) {
-                    const delay = lectureTime.getTime() - now.getTime();
-                    
-                    if (delay <= 7 * 24 * 60 * 60 * 1000) {
-                        const startMessage = `محاضرة ${lecture.subject} بدأت الآن مع ${lecture.professor} في القاعة ${lecture.room} - مدة المحاضرة: ${lectureDuration}`;
-                        
-                        console.log(`Start notification scheduled for ${lectureTime.toLocaleString('ar-SA')} (in ${Math.round(delay/1000)} seconds)`);
-
-                        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-                            this.serviceWorkerRegistration.active.postMessage({
-                                type: 'SCHEDULE_PRECISE_NOTIFICATION',
-                                notification: {
-                                    title: 'بداية المحاضرة 🎓',
-                                    body: startMessage,
-                                    scheduledTime: lectureTime.getTime(),
-                                    lectureId: `${lecture.id}-start-${dayOffset}`,
-                                    notificationType: 'start',
-                                    icon: './icon-192.png',
-                                    badge: './icon-192.png',
-                                    requireInteraction: true,
-                                    vibrate: [800, 200, 800, 200, 800],
-                                    silent: false,
-                                    tag: `start-${lecture.id}-${dayOffset}`,
-                                    data: {
-                                        lectureId: lecture.id,
-                                        type: 'start',
-                                        subject: lecture.subject,
-                                        professor: lecture.professor,
-                                        room: lecture.room,
-                                        startTime: lecture.startTime
-                                    }
-                                }
-                            });
-                        } else {
-                            const timeoutId = setTimeout(() => {
-                                this.sendNotification(
-                                    'بداية المحاضرة 🎓',
-                                    startMessage,
-                                    {
-                                        type: 'lecture',
-                                        tag: `start-${lecture.id}-${dayOffset}`,
-                                        vibrate: [800, 200, 800, 200, 800],
-                                        requireInteraction: true,
-                                        data: { lectureId: lecture.id, type: 'start' }
-                                    }
-                                );
-                            }, delay);
-                            this.notificationTimeouts.set(`start_${lecture.id}_${dayOffset}`, timeoutId);
-                        }
-                    }
-                }
-
-                // التوقف بعد العثور على أول تكرار للمحاضرة
-                if (dayOffset > 0) break;
-            }
-        }
-    }
-
-    getDaysUntilNextOccurrence(lectureDay, currentDay) {
-        const dayOrder = ['saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday'];
-        const currentIndex = dayOrder.indexOf(currentDay);
-        const lectureIndex = dayOrder.indexOf(lectureDay);
-
-        if (lectureIndex > currentIndex) {
-            return lectureIndex - currentIndex;
-        } else if (lectureIndex < currentIndex) {
-            return (6 - currentIndex) + lectureIndex + 1;
-        } else {
-            return 7; // الأسبوع القادم
-        }
-    }
-
-    async sendNotification(title, body, options = {}) {
-        if (this.notificationPermission !== 'granted') {
-            console.log('Notification permission not granted');
-            return;
+    async sendTelegramMessage(message, type = 'lecture') {
+        if (!this.telegramChatId) {
+            console.error('Cannot send Telegram message - no chat ID set');
+            return false;
         }
 
         try {
-            console.log('Attempting to send notification:', title, body);
+            const response = await fetch('/send', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    chatId: this.telegramChatId,
+                    message: message,
+                    type: type
+                })
+            });
 
-            if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-                // استخدام Service Worker للإشعارات
-                console.log('Using Service Worker for notification');
-                await this.serviceWorkerRegistration.showNotification(title, {
-                    body: body,
-                    icon: './icon-192.png',
-                    badge: './icon-192.png',
-                    tag: options.tag || 'lecture-notification-' + Date.now(),
-                    requireInteraction: true,
-                    vibrate: options.vibrate || [500, 200, 500],
-                    silent: false,
-                    timestamp: Date.now(),
-                    actions: [
-                        {
-                            action: 'view',
-                            title: 'عرض',
-                            icon: './icon-192.png'
-                        },
-                        {
-                            action: 'dismiss',
-                            title: 'إغلاق',
-                            icon: './icon-192.png'
-                        }
-                    ],
-                    data: { 
-                        type: options.type || 'notification',
-                        timestamp: Date.now(),
-                        ...options.data
-                    }
-                });
-                console.log('Notification sent via Service Worker');
-            } else {
-                // إشعار عادي للمتصفحات التي لا تدعم Service Worker
-                console.log('Using regular notification API');
-                const notification = new Notification(title, {
-                    body: body,
-                    icon: './icon-192.png',
-                    tag: options.tag || 'lecture-notification-' + Date.now(),
-                    requireInteraction: true,
-                    silent: false,
-                    vibrate: options.vibrate || [500, 200, 500]
-                });
-
-                notification.onclick = () => {
-                    window.focus();
-                    notification.close();
-                };
-
-                // إغلاق الإشعار بعد 15 ثانية
-                setTimeout(() => {
-                    notification.close();
-                }, 15000);
-
-                console.log('Regular notification created');
-            }
+            const result = await response.json();
+            console.log('Telegram message sent:', result);
+            return result.ok;
         } catch (error) {
-            console.error('خطأ في إرسال الإشعار:', error);
-            // إظهار إشعار داخل التطبيق كبديل
-            this.showAppNotification(`${title}: ${body}`, 'info');
+            console.error('Failed to send Telegram message:', error);
+            return false;
         }
     }
 
     testNotification() {
-        if (this.notificationPermission !== 'granted') {
-            this.showAppNotification('يجب تفعيل الإشعارات أولاً', 'warning');
+        if (!this.telegramChatId) {
+            this.showAppNotification('يجب تفعيل إشعارات Telegram أولاً', 'warning');
             return;
         }
 
-        this.showAppNotification('سيتم إرسال إشعار تجريبي خلال 3 ثوانٍ...', 'info');
+        this.showAppNotification('سيتم إرسال رسالة تجريبية إلى Telegram خلال 3 ثوانٍ...', 'info');
 
-        // إرسال إشعار تجريبي مع نفس تنسيق إشعارات المحاضرات
+        // إرسال رسالة تجريبية مع نفس تنسيق إشعارات المحاضرات
         const testLecture = {
             subject: 'الدوائر الكهربائية',
             professor: 'د. عادل راوع',
@@ -743,64 +460,25 @@ class LectureScheduleApp {
 
         const lectureDuration = this.formatDuration(testLecture.duration);
 
-        // إرسال إشعار عبر Service Worker
-        if (this.serviceWorkerRegistration && this.serviceWorkerRegistration.active) {
-            console.log('Sending test notification via Service Worker');
-            
-            // إشعار تذكير تجريبي
-            this.serviceWorkerRegistration.active.postMessage({
-                type: 'SCHEDULE_TEST_NOTIFICATION',
-                title: 'تذكير: محاضرة قريبة ⏰ (تجريبي)',
-                body: `محاضرة ${testLecture.subject} ستبدأ بعد 5 دقائق مع ${testLecture.professor} في القاعة ${testLecture.room} - مدة المحاضرة: ${lectureDuration}`,
-                delay: 3000
-            });
+        // إرسال رسالة تذكير تجريبية
+        setTimeout(() => {
+            this.sendTelegramMessage(
+                `⏰ *تذكير: محاضرة قريبة (تجريبي)*\n\nمحاضرة ${testLecture.subject} ستبدأ بعد 5 دقائق مع ${testLecture.professor} في القاعة ${testLecture.room} - مدة المحاضرة: ${lectureDuration}`,
+                'test-reminder'
+            );
+        }, 3000);
 
-            // إشعار بداية تجريبي
-            setTimeout(() => {
-                this.serviceWorkerRegistration.active.postMessage({
-                    type: 'SCHEDULE_TEST_NOTIFICATION',
-                    title: 'بداية المحاضرة 🎓 (تجريبي)',
-                    body: `محاضرة ${testLecture.subject} بدأت الآن مع ${testLecture.professor} في القاعة ${testLecture.room} - مدة المحاضرة: ${lectureDuration}`,
-                    delay: 1000
-                });
-            }, 8000);
-
-        } else {
-            // إرسال مباشر إذا لم يكن Service Worker متاحاً
-            setTimeout(() => {
-                this.sendNotification(
-                    'تذكير: محاضرة قريبة ⏰ (تجريبي)',
-                    `محاضرة ${testLecture.subject} ستبدأ بعد 5 دقائق مع ${testLecture.professor} في القاعة ${testLecture.room} - مدة المحاضرة: ${lectureDuration}`,
-                    {
-                        type: 'test',
-                        tag: 'test-reminder',
-                        vibrate: [500, 200, 500, 200, 500],
-                        requireInteraction: true
-                    }
-                );
-            }, 3000);
-
-            setTimeout(() => {
-                this.sendNotification(
-                    'بداية المحاضرة 🎓 (تجريبي)',
-                    `محاضرة ${testLecture.subject} بدأت الآن مع ${testLecture.professor} في القاعة ${testLecture.room} - مدة المحاضرة: ${lectureDuration}`,
-                    {
-                        type: 'test',
-                        tag: 'test-start',
-                        vibrate: [800, 200, 800, 200, 800],
-                        requireInteraction: true
-                    }
-                );
-            }, 8000);
-        }
+        // إرسال رسالة بداية تجريبية
+        setTimeout(() => {
+            this.sendTelegramMessage(
+                `🎓 *بداية المحاضرة (تجريبي)*\n\nمحاضرة ${testLecture.subject} بدأت الآن مع ${testLecture.professor} في القاعة ${testLecture.room} - مدة المحاضرة: ${lectureDuration}`,
+                'test-start'
+            );
+        }, 8000);
 
         setTimeout(() => {
-            this.showAppNotification('تم إرسال الإشعارات التجريبية! تحقق من وصولها.', 'success');
+            this.showAppNotification('تم إرسال الرسائل التجريبية! تحقق من وصولها في Telegram.', 'success');
         }, 4000);
-
-        setTimeout(() => {
-            this.showAppNotification('إذا لم تصلك الإشعارات، تأكد من إعدادات الإشعارات في متصفحك أو جهازك.', 'info');
-        }, 12000);
     }
 
     updateCurrentInfo() {
