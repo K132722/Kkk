@@ -1,0 +1,14 @@
+workflows:
+ios-workflow:
+  name: Build MyPWA iOS App           # اسم سير العمل، ممكن تغيّره لأي اسم تحبه
+  max_build_duration: 120             # الوقت الأقصى للبناء بالدقائق
+  instance_type: mac_mini_m2          # نوع جهاز البناء في Codemagic
+  environment:
+    vars:
+      APP_NAME: "MyPWA"              # اسم التطبيق، غيّره حسب مشروعك
+  scripts:
+    - name: Install dependencies
+      script: |
+        npm install                    # تثبيت التبعيات
+        npx cap sync ios               # مزامنة Capacitor مع iOS
+  # نشر معطل، لذا حذفنا publishing
